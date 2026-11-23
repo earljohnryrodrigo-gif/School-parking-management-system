@@ -2,31 +2,37 @@ package ui;
 
 import javax.swing.*;
 import java.awt.*;
+import java.net.URL;
 
 public class BrandPanel extends JPanel {
 
     public BrandPanel() {
         setLayout(new GridBagLayout());
-        setBackground(new Color(62, 62, 62));
+        setBackground(Theme.SIDEBAR);
         setPreferredSize(new Dimension(340, 0));
 
         JPanel stack = new JPanel();
         stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
         stack.setOpaque(false);
 
-        ImageIcon icon = new ImageIcon(
-        getClass().getResource("/images/parking-logo.jpg")
-);
+        URL logoURL = getClass().getResource("/images/parking-logo.jpg");
 
-Image img = icon.getImage().getScaledInstance(
-        300, 300, Image.SCALE_SMOOTH
-);
+        if (logoURL != null) {
+            ImageIcon icon = new ImageIcon(logoURL);
 
-JLabel iconLabel = new JLabel(new ImageIcon(img));
-iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+            Image img = icon.getImage().getScaledInstance(
+                    300, 300, Image.SCALE_SMOOTH
+            );
+
+            JLabel iconLabel = new JLabel(new ImageIcon(img));
+            iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+            stack.add(iconLabel);
+            stack.add(Box.createVerticalStrut(12));
+        }
 
         JLabel titleLabel = new JLabel("Parking-ka-BOSS", SwingConstants.CENTER);
-        titleLabel.setForeground(new Color(245, 166, 35));
+        titleLabel.setForeground(Theme.ORANGE);
         titleLabel.setFont(new Font("SansSerif", Font.BOLD, 24));
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
@@ -35,8 +41,6 @@ iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         subtitleLabel.setFont(new Font("SansSerif", Font.PLAIN, 13));
         subtitleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        stack.add(iconLabel);
-        stack.add(Box.createVerticalStrut(6));
         stack.add(titleLabel);
         stack.add(Box.createVerticalStrut(4));
         stack.add(subtitleLabel);

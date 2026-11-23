@@ -5,6 +5,7 @@ import service.ParkingService;
 
 import javax.swing.*;
 import java.awt.*;
+import java.net.URL;
 
 public class LoginPanel extends JPanel {
 
@@ -56,16 +57,15 @@ public class LoginPanel extends JPanel {
             String pass = new String(passField.getPassword());
 
             ParkingService.UserAccount account = service.login(name, pass, chosenType);
+
             if (account != null) {
                 nameField.setText("");
                 passField.setText("");
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Login Successful",
-                        "Login Successful",
-                        JOptionPane.INFORMATION_MESSAGE
-                );
+
+                showLoginSuccess();
+
                 onAuthSuccess.run();
+
             } else {
                 JOptionPane.showMessageDialog(
                         this,
@@ -86,5 +86,30 @@ public class LoginPanel extends JPanel {
         right.add(actionArea, BorderLayout.SOUTH);
 
         add(right, BorderLayout.CENTER);
+    }
+
+    private void showLoginSuccess() {
+
+        URL logoURL = getClass().getResource("/images/approve.jpg");
+
+        ImageIcon logoIcon = null;
+
+        if (logoURL != null) {
+            ImageIcon originalIcon = new ImageIcon(logoURL);
+
+            Image image = originalIcon.getImage().getScaledInstance(
+                    220, 200, Image.SCALE_SMOOTH
+            );
+
+            logoIcon = new ImageIcon(image);
+        }
+
+        JOptionPane.showMessageDialog(
+                this,
+                "Login Successful!",
+                "Login Successful",
+                JOptionPane.INFORMATION_MESSAGE,
+                logoIcon
+        );
     }
 }
