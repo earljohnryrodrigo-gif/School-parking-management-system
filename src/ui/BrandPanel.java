@@ -8,8 +8,8 @@ public class BrandPanel extends JPanel {
 
     public BrandPanel() {
         setLayout(new GridBagLayout());
-        setBackground(Theme.SIDEBAR);
-        setPreferredSize(new Dimension(340, 0));
+        setBackground(Theme.PRIMARY_NAVY);
+        setPreferredSize(new Dimension(300, 0));
 
         JPanel stack = new JPanel();
         stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
@@ -21,28 +21,28 @@ public class BrandPanel extends JPanel {
             ImageIcon icon = new ImageIcon(logoURL);
 
             Image img = icon.getImage().getScaledInstance(
-                    300, 300, Image.SCALE_SMOOTH
+                    200, 200, Image.SCALE_SMOOTH
             );
 
             JLabel iconLabel = new JLabel(new ImageIcon(img));
             iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
             stack.add(iconLabel);
-            stack.add(Box.createVerticalStrut(12));
+            stack.add(Box.createVerticalStrut(20));
         }
 
         JLabel titleLabel = new JLabel("Parking-ka-BOSS", SwingConstants.CENTER);
-        titleLabel.setForeground(Theme.ORANGE);
-        titleLabel.setFont(new Font("SansSerif", Font.BOLD, 24));
+        titleLabel.setForeground(Theme.TEXT_WHITE);
+        titleLabel.setFont(Theme.FONT_TITLE);
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JLabel subtitleLabel = new JLabel("School Parking Management", SwingConstants.CENTER);
-        subtitleLabel.setForeground(new Color(220, 220, 220));
-        subtitleLabel.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        subtitleLabel.setForeground(Theme.TEXT_MUTED);
+        subtitleLabel.setFont(Theme.FONT_SUBTITLE);
         subtitleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         stack.add(titleLabel);
-        stack.add(Box.createVerticalStrut(4));
+        stack.add(Box.createVerticalStrut(10));
         stack.add(subtitleLabel);
 
         add(stack);

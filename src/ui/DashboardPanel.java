@@ -8,7 +8,9 @@ import model.Vehicle;
 import service.ParkingService;
 
 import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.time.LocalDate;
 
@@ -39,8 +41,11 @@ public class DashboardPanel extends JPanel {
     };
 
     private final DefaultTableModel recordModel = new DefaultTableModel(
-            new String[]{"Record ID", "Vehicle ID", "Slot", "Visitor ID", "Entry Time", "Exit Time", "ID Surrendered"}, 0
+            new String[]{"Record ID", "Vehicle ID", "Slot", "Owner / Visitor ID", "Entry Time", "Exit Time", "ID Surrendered"}, 0
     ) {
+        @Override public boolean isCellEditable(int row, int column) { return false; }
+    };
+    private final DefaultTableModel userModel = new DefaultTableModel(new String[]{"Account ID", "Name", "Account Type", "Registration Info"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
 
@@ -50,29 +55,41 @@ public class DashboardPanel extends JPanel {
     private final JLabel endLabel = new JLabel("End:");
     private final JTextField endInput = new JTextField(defaultReservationEnd(), 13);
 
-    private final JButton selectImmediateBtn = new JButton("Select Slot (Immediate)");
-    private final JButton requestReservationBtn = new JButton("Request Reservation");
-    private final JButton releaseBtn = new JButton("Release / Exit Slot");
-    private final JButton addSlotBtn = new JButton("+ Add Slot");
+    private final JButton selectImmediateBtn = Theme.primaryButton("Select Slot (Immediate)");
+    private final JButton requestReservationBtn = Theme.primaryButton("Request Reservation");
+    private final JButton releaseBtn = Theme.primaryButton("Release / Exit Slot");
+    private final JButton addSlotBtn = Theme.secondaryButton("+ Add Slot");
+    private final JButton editSlotBtn = Theme.secondaryButton("Edit Slot");
+    private final JButton deleteSlotBtn = Theme.secondaryButton("Delete Slot");
 
     private final JTabbedPane tabs = new JTabbedPane();
     private JPanel slotsTabPanel;
     private JPanel reservationsTabPanel;
     private JPanel vehiclesTabPanel;
     private JPanel recordsTabPanel;
+    private JPanel usersTabPanel;
 
-    private final JPanel adminResActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
-    private final JPanel adminVehicleActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
+    private final JPanel adminResActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
+    private final JPanel adminVehicleActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
+    private JTable vehicleTable;
+    private final JPanel statsPanel = new JPanel(new GridLayout(1, 4, 12, 0));
 
     public DashboardPanel(ParkingService service, Runnable onLogout) {
         this.service = service;
         this.onLogout = onLogout;
 
-        setLayout(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        setLayout(new BorderLayout(0, 0));
+        setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        setBackground(Theme.BACKGROUND);
 
         add(buildHeader(), BorderLayout.NORTH);
-        add(buildTabs(), BorderLayout.CENTER);
+        JPanel workspace = new JPanel(new BorderLayout(0, 14));
+        workspace.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
+        workspace.setBackground(Theme.BACKGROUND);
+        statsPanel.setOpaque(false);
+        workspace.add(statsPanel, BorderLayout.NORTH);
+        workspace.add(buildTabs(), BorderLayout.CENTER);
+        add(workspace, BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
     }
 
@@ -86,20 +103,21 @@ public class DashboardPanel extends JPanel {
 
     private JPanel buildHeader() {
         JPanel header = new JPanel(new BorderLayout());
-        header.setBackground(new Color(62, 62, 62));
-        header.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
+        header.setBackground(Theme.PRIMARY_NAVY);
+        header.setBorder(BorderFactory.createEmptyBorder(12, 20, 12, 20));
 
         JLabel brand = new JLabel("Parking-ka-BOSS  |  School Parking Management");
-        brand.setForeground(new Color(245, 166, 35));
-        brand.setFont(new Font("SansSerif", Font.BOLD, 16));
+        brand.setForeground(Theme.TEXT_WHITE);
+        brand.setFont(Theme.FONT_TITLE);
 
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 16, 0));
         right.setOpaque(false);
 
-        userBannerLabel.setForeground(Color.WHITE);
+        userBannerLabel.setForeground(Theme.TEXT_WHITE);
         userBannerLabel.setFont(new Font("SansSerif", Font.BOLD, 13));
 
-        JButton logoutBtn = new JButton("Logout");
+        JButton logoutBtn = Theme.secondaryButton("Logout");
+        logoutBtn.setMaximumSize(new Dimension(100, 32));
         logoutBtn.addActionListener(e -> {
             service.logout();
             onLogout.run();
@@ -114,10 +132,12 @@ public class DashboardPanel extends JPanel {
     }
 
     private JTabbedPane buildTabs() {
+        tabs.setTabPlacement(JTabbedPane.LEFT);
         slotsTabPanel = buildSlotsTab();
         reservationsTabPanel = buildReservationsTab();
         vehiclesTabPanel = buildVehiclesTab();
         recordsTabPanel = buildRecordsTab();
+        usersTabPanel = buildUsersTab();
 
         tabs.addTab("Parking Slots", slotsTabPanel);
         tabs.addTab("Reservations", reservationsTabPanel);
@@ -131,12 +151,15 @@ public class DashboardPanel extends JPanel {
         tabs.removeAll();
 
         tabs.addTab("Parking Slots", slotsTabPanel);
-        if (role != UserType.STUDENT) {
+        if (role != null) {
             tabs.addTab("Reservations", reservationsTabPanel);
         }
+        if (role != null) {
+            tabs.addTab(role == UserType.PARKING_ADMINISTRATOR ? "Registered Vehicles" : "My Vehicles", vehiclesTabPanel);
+        }
+        if (role != null) tabs.addTab(role == UserType.PARKING_ADMINISTRATOR ? "Entry / Exit Logs" : "Parking History", recordsTabPanel);
         if (role == UserType.PARKING_ADMINISTRATOR) {
-            tabs.addTab("Registered Vehicles", vehiclesTabPanel);
-            tabs.addTab("Entry / Exit Logs", recordsTabPanel);
+            tabs.addTab("Registered Users", usersTabPanel);
         }
 
         if (selected != null && tabs.indexOfComponent(selected) >= 0) {
@@ -147,11 +170,19 @@ public class DashboardPanel extends JPanel {
     }
 
     private JPanel buildSlotsTab() {
-        JPanel panel = new JPanel(new BorderLayout(6, 6));
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBackground(Theme.BACKGROUND);
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
 
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
-        controls.add(new JLabel("Slot ID:"));
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8));
+        controls.setOpaque(false);
+
+        JLabel slotIdLabel = new JLabel("Slot ID:");
+        slotIdLabel.setFont(Theme.FONT_LABEL);
+        slotIdLabel.setForeground(Theme.TEXT_MUTED);
+        controls.add(slotIdLabel);
         controls.add(slotInput);
+
         controls.add(startLabel);
         controls.add(startInput);
         controls.add(endLabel);
@@ -160,9 +191,19 @@ public class DashboardPanel extends JPanel {
         controls.add(requestReservationBtn);
         controls.add(releaseBtn);
         controls.add(addSlotBtn);
+        controls.add(editSlotBtn);
+        controls.add(deleteSlotBtn);
 
         JTable table = new JTable(slotModel);
-        table.setRowHeight(24);
+        table.setRowHeight(30);
+        table.getTableHeader().setFont(Theme.FONT_TABLE_HEADER);
+        table.getTableHeader().setBackground(Theme.PRIMARY_NAVY);
+        table.getTableHeader().setForeground(Theme.TEXT_WHITE);
+        table.getTableHeader().setReorderingAllowed(false);
+        table.setFont(Theme.FONT_TABLE_CELL);
+        table.setIntercellSpacing(new Dimension(0, 0));
+        table.setSelectionBackground(new Color(235, 245, 255));
+        table.setSelectionForeground(Theme.TEXT_DARK);
         table.getSelectionModel().addListSelectionListener(e -> {
             int row = table.getSelectedRow();
             if (row >= 0) {
@@ -170,10 +211,15 @@ public class DashboardPanel extends JPanel {
             }
         });
 
+        // Custom renderer: color the Status cell and alternate row backgrounds
+        table.setDefaultRenderer(Object.class, new StatusTableCellRenderer());
+
         selectImmediateBtn.addActionListener(e -> handleSelectSlotImmediate());
         requestReservationBtn.addActionListener(e -> handleRequestReservation());
         releaseBtn.addActionListener(e -> handleReleaseSlot());
         addSlotBtn.addActionListener(e -> handleAddSlot());
+        editSlotBtn.addActionListener(e -> handleEditSlot());
+        deleteSlotBtn.addActionListener(e -> handleDeleteSlot());
 
         panel.add(controls, BorderLayout.NORTH);
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
@@ -181,13 +227,27 @@ public class DashboardPanel extends JPanel {
     }
 
     private JPanel buildReservationsTab() {
-        JPanel panel = new JPanel(new BorderLayout(6, 6));
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBackground(Theme.BACKGROUND);
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
 
         JTable table = new JTable(reservationModel);
-        table.setRowHeight(24);
+        table.setRowHeight(30);
+        table.getTableHeader().setFont(Theme.FONT_TABLE_HEADER);
+        table.getTableHeader().setBackground(Theme.PRIMARY_NAVY);
+        table.getTableHeader().setForeground(Theme.TEXT_WHITE);
+        table.getTableHeader().setReorderingAllowed(false);
+        table.setFont(Theme.FONT_TABLE_CELL);
+        table.setIntercellSpacing(new Dimension(0, 0));
+        table.setSelectionBackground(new Color(235, 245, 255));
+        table.setSelectionForeground(Theme.TEXT_DARK);
+        table.setDefaultRenderer(Object.class, new StatusTableCellRenderer());
 
-        JButton approveBtn = new JButton("Approve Selected");
-        JButton rejectBtn = new JButton("Reject Selected");
+        JButton approveBtn = Theme.primaryButton("Approve Selected");
+        JButton rejectBtn = Theme.secondaryButton("Reject Selected");
+
+        Theme.addHoverEffect(approveBtn);
+        Theme.addHoverEffect(rejectBtn);
 
         approveBtn.addActionListener(e -> {
             int row = table.getSelectedRow();
@@ -221,6 +281,7 @@ public class DashboardPanel extends JPanel {
             }
         });
 
+        adminResActions.setOpaque(false);
         adminResActions.add(approveBtn);
         adminResActions.add(rejectBtn);
 
@@ -230,14 +291,41 @@ public class DashboardPanel extends JPanel {
     }
 
     private JPanel buildVehiclesTab() {
-        JPanel panel = new JPanel(new BorderLayout(6, 6));
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBackground(Theme.BACKGROUND);
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
 
         JTable table = new JTable(vehicleModel);
-        table.setRowHeight(24);
+        vehicleTable = table;
+        table.setRowHeight(30);
+        table.getTableHeader().setFont(Theme.FONT_TABLE_HEADER);
+        table.getTableHeader().setBackground(Theme.PRIMARY_NAVY);
+        table.getTableHeader().setForeground(Theme.TEXT_WHITE);
+        table.getTableHeader().setReorderingAllowed(false);
+        table.setFont(Theme.FONT_TABLE_CELL);
+        table.setIntercellSpacing(new Dimension(0, 0));
+        table.setSelectionBackground(new Color(235, 245, 255));
+        table.setSelectionForeground(Theme.TEXT_DARK);
+        table.setDefaultRenderer(Object.class, new StatusTableCellRenderer());
 
-        JButton registerBtn = new JButton("+ Register Vehicle");
+        JButton registerBtn = Theme.primaryButton("+ Add Vehicle");
+        JButton editBtn = Theme.secondaryButton("Edit Selected");
+        JButton deleteBtn = Theme.secondaryButton("Delete Selected");
+        JButton refreshBtn = Theme.secondaryButton("Refresh");
+        Theme.addHoverEffect(registerBtn);
+        Theme.addHoverEffect(editBtn);
+        Theme.addHoverEffect(deleteBtn);
+        Theme.addHoverEffect(refreshBtn);
         registerBtn.addActionListener(e -> handleRegisterVehicle());
+        editBtn.addActionListener(e -> handleEditVehicle());
+        deleteBtn.addActionListener(e -> handleDeleteVehicle());
+        refreshBtn.addActionListener(e -> refreshAll());
+
+        adminVehicleActions.setOpaque(false);
         adminVehicleActions.add(registerBtn);
+        adminVehicleActions.add(editBtn);
+        adminVehicleActions.add(deleteBtn);
+        adminVehicleActions.add(refreshBtn);
 
         panel.add(adminVehicleActions, BorderLayout.NORTH);
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
@@ -245,16 +333,48 @@ public class DashboardPanel extends JPanel {
     }
 
     private JPanel buildRecordsTab() {
-        JPanel panel = new JPanel(new BorderLayout(6, 6));
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBackground(Theme.BACKGROUND);
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
         JTable table = new JTable(recordModel);
-        table.setRowHeight(24);
+        table.setRowHeight(30);
+        table.getTableHeader().setFont(Theme.FONT_TABLE_HEADER);
+        table.getTableHeader().setBackground(Theme.PRIMARY_NAVY);
+        table.getTableHeader().setForeground(Theme.TEXT_WHITE);
+        table.getTableHeader().setReorderingAllowed(false);
+        table.setFont(Theme.FONT_TABLE_CELL);
+        table.setIntercellSpacing(new Dimension(0, 0));
+        table.setSelectionBackground(new Color(235, 245, 255));
+        table.setSelectionForeground(Theme.TEXT_DARK);
+        table.setDefaultRenderer(Object.class, new StatusTableCellRenderer());
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        return panel;
+    }
+
+    private JPanel buildUsersTab() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBackground(Theme.BACKGROUND);
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        JTable table = new JTable(userModel);
+        table.setRowHeight(30);
+        table.getTableHeader().setFont(Theme.FONT_TABLE_HEADER);
+        table.getTableHeader().setReorderingAllowed(false);
+        JButton refresh = Theme.secondaryButton("Refresh Users");
+        refresh.addActionListener(e -> refreshAll());
+        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        top.setOpaque(false);
+        top.add(refresh);
+        panel.add(top, BorderLayout.NORTH);
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
         return panel;
     }
 
     private JPanel buildFooter() {
         JPanel footer = new JPanel(new BorderLayout());
+        footer.setBackground(Theme.CARD_WHITE);
+        footer.setBorder(BorderFactory.createEmptyBorder(10, 16, 10, 16));
         statusInfoLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        statusInfoLabel.setForeground(Theme.TEXT_MUTED);
         footer.add(statusInfoLabel, BorderLayout.WEST);
         return footer;
     }
@@ -352,21 +472,48 @@ public class DashboardPanel extends JPanel {
         }
     }
 
+    private void handleEditSlot() {
+        String slotNumber = slotInput.getText().trim();
+        ParkingSlot selected = service.findSlot(slotNumber);
+        if (selected == null) { JOptionPane.showMessageDialog(this, "Select a slot row first."); return; }
+        JTextField typeField = new JTextField(selected.getSlotType());
+        JComboBox<String> zoneBox = new JComboBox<>(new String[]{"Student", "School Personnel", "Visitor"});
+        zoneBox.setSelectedItem(selected.getZoneType());
+        JPanel form = new JPanel(new GridLayout(2, 2, 6, 6));
+        form.add(new JLabel("Slot type:")); form.add(typeField);
+        form.add(new JLabel("Zone:")); form.add(zoneBox);
+        if (JOptionPane.showConfirmDialog(this, form, "Edit " + selected.getSlotNumber(), JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        String result = service.updateSlot(slotNumber, typeField.getText(), (String) zoneBox.getSelectedItem());
+        if ("OK".equals(result)) refreshAll(); else JOptionPane.showMessageDialog(this, result, "Update Failed", JOptionPane.WARNING_MESSAGE);
+    }
+
+    private void handleDeleteSlot() {
+        String slotNumber = slotInput.getText().trim();
+        if (slotNumber.isEmpty()) { JOptionPane.showMessageDialog(this, "Select a slot row first."); return; }
+        if (JOptionPane.showConfirmDialog(this, "Delete slot " + slotNumber + "?", "Confirm Delete", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        String result = service.deleteSlot(slotNumber);
+        if ("OK".equals(result)) { slotInput.setText(""); refreshAll(); }
+        else JOptionPane.showMessageDialog(this, result, "Delete Failed", JOptionPane.WARNING_MESSAGE);
+    }
+
     private void handleRegisterVehicle() {
         JTextField plateField = new JTextField();
         JComboBox<String> vTypeBox = new JComboBox<>(new String[]{"Sedan", "SUV", "Motorcycle", "Van"});
         JComboBox<String> stickerBox = new JComboBox<>(new String[]{"Student", "School Personnel", "Visitor"});
         JTextField ownerField = new JTextField();
+        boolean admin = service.getCurrentUser() != null && service.getCurrentUser().getUserType() == UserType.PARKING_ADMINISTRATOR;
 
-        JPanel form = new JPanel(new GridLayout(4, 2, 6, 6));
+        JPanel form = new JPanel(new GridLayout(admin ? 4 : 3, 2, 6, 6));
         form.add(new JLabel("Plate Number:"));
         form.add(plateField);
         form.add(new JLabel("Vehicle Type:"));
         form.add(vTypeBox);
         form.add(new JLabel("Sticker Category:"));
         form.add(stickerBox);
-        form.add(new JLabel("Owner Name / ID:"));
-        form.add(ownerField);
+        if (admin) {
+            form.add(new JLabel("Owner Name / ID:"));
+            form.add(ownerField);
+        }
 
         int choice = JOptionPane.showConfirmDialog(this, form, "Register Vehicle Sticker", JOptionPane.OK_CANCEL_OPTION);
         if (choice == JOptionPane.OK_OPTION) {
@@ -379,10 +526,41 @@ public class DashboardPanel extends JPanel {
             );
             if ("OK".equals(result)) {
                 refreshAll();
+                tabs.setSelectedComponent(vehiclesTabPanel);
             } else {
                 JOptionPane.showMessageDialog(this, result, "Error", JOptionPane.WARNING_MESSAGE);
             }
         }
+    }
+
+    private void handleEditVehicle() {
+        int row = vehicleTable.getSelectedRow();
+        if (row < 0) { JOptionPane.showMessageDialog(this, "Select a vehicle first."); return; }
+        String id = vehicleModel.getValueAt(row, 0).toString();
+        JTextField plate = new JTextField(vehicleModel.getValueAt(row, 1).toString());
+        JComboBox<String> type = new JComboBox<>(new String[]{"Sedan", "SUV", "Motorcycle", "Van"});
+        type.setSelectedItem(vehicleModel.getValueAt(row, 2).toString());
+        JTextField expiry = new JTextField(vehicleModel.getValueAt(row, 5).toString());
+        JPanel form = new JPanel(new GridLayout(3, 2, 6, 6));
+        form.add(new JLabel("Plate number:")); form.add(plate);
+        form.add(new JLabel("Vehicle type:")); form.add(type);
+        form.add(new JLabel("Expiration (yyyy-MM-dd):")); form.add(expiry);
+        if (JOptionPane.showConfirmDialog(this, form, "Edit Vehicle", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        try {
+            String result = service.updateVehicle(id, plate.getText(), (String) type.getSelectedItem(), LocalDate.parse(expiry.getText().trim()));
+            if ("OK".equals(result)) refreshAll(); else JOptionPane.showMessageDialog(this, result, "Update Failed", JOptionPane.WARNING_MESSAGE);
+        } catch (java.time.format.DateTimeParseException ex) {
+            JOptionPane.showMessageDialog(this, "Enter the date as yyyy-MM-dd.", "Invalid Date", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void handleDeleteVehicle() {
+        int row = vehicleTable.getSelectedRow();
+        if (row < 0) { JOptionPane.showMessageDialog(this, "Select a vehicle first."); return; }
+        String id = vehicleModel.getValueAt(row, 0).toString();
+        if (JOptionPane.showConfirmDialog(this, "Delete the selected vehicle?", "Confirm Delete", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        String result = service.deleteVehicle(id);
+        if ("OK".equals(result)) refreshAll(); else JOptionPane.showMessageDialog(this, result, "Delete Failed", JOptionPane.WARNING_MESSAGE);
     }
 
     public void refreshAll() {
@@ -414,8 +592,10 @@ public class DashboardPanel extends JPanel {
 
             releaseBtn.setVisible(!isVisitor);
             addSlotBtn.setVisible(isAdmin);
+            editSlotBtn.setVisible(isAdmin);
+            deleteSlotBtn.setVisible(isAdmin);
             adminResActions.setVisible(isAdmin);
-            adminVehicleActions.setVisible(isAdmin);
+            adminVehicleActions.setVisible(true);
 
             String assigned = service.getAssignedSlotForCurrentUser();
             statusInfoLabel.setText(assigned != null
@@ -425,19 +605,38 @@ public class DashboardPanel extends JPanel {
 
         rebuildTabsForRole(role);
 
+        statsPanel.removeAll();
+        int available = 0;
+        int occupied = 0;
+        for (ParkingSlot slot : service.getAllSlots()) {
+            if (service.classifySlot(slot) == ParkingService.SlotStatus.AVAILABLE) available++;
+            else occupied++;
+        }
+        statsPanel.add(Theme.statCard("Total Spaces", String.valueOf(service.getAllSlots().size()), Theme.PRIMARY_BLUE));
+        statsPanel.add(Theme.statCard("Available", String.valueOf(available), Theme.STATUS_GREEN));
+        statsPanel.add(Theme.statCard("Occupied / Reserved", String.valueOf(occupied), Theme.STATUS_ORANGE));
+        statsPanel.add(Theme.statCard("Reservations", String.valueOf(service.getReservations().size()), Theme.PRIMARY_NAVY));
+        statsPanel.revalidate();
+        statsPanel.repaint();
+
         slotModel.setRowCount(0);
-        for (ParkingSlot s : service.getAllSlots()) {
+        for (ParkingSlot s : service.getSlotsSortedByStatus(role)) {
+            String status = switch (service.classifySlot(s)) {
+                case AVAILABLE -> "Available";
+                case OCCUPIED -> "Occupied";
+                case RESERVED -> "Reserved";
+            };
             slotModel.addRow(new Object[]{
                     s.getSlotNumber(),
                     s.getSlotType(),
                     s.getZoneType(),
-                    s.checkAvailability() ? "Available" : "Occupied / Reserved",
+                    status,
                     service.getSlotHolderDisplay(s)
             });
         }
 
         reservationModel.setRowCount(0);
-        if (user != null && !isStudent) {
+        if (user != null) {
             for (Reservation r : service.getReservations()) {
                 if (isAdmin || user.getUserId().equals(r.getRequesterId())) {
                     reservationModel.addRow(new Object[]{
@@ -454,8 +653,8 @@ public class DashboardPanel extends JPanel {
         }
 
         vehicleModel.setRowCount(0);
-        if (isAdmin) {
-            for (Vehicle v : service.getVehicles()) {
+        if (user != null) {
+            for (Vehicle v : service.getVehiclesForCurrentUser()) {
                 vehicleModel.addRow(new Object[]{
                         v.getVehicleId(),
                         v.getPlateNumber(),
@@ -468,18 +667,78 @@ public class DashboardPanel extends JPanel {
         }
 
         recordModel.setRowCount(0);
-        if (isAdmin) {
+        if (user != null) {
             for (ParkingRecord rec : service.getRecords()) {
+                if (!isAdmin && !user.getUserId().equals(rec.getVisitorId())) continue;
                 recordModel.addRow(new Object[]{
                         rec.getRecordId(),
                         rec.getVehicleId(),
                         rec.getSlotNumber(),
                         rec.getVisitorId() != null ? rec.getVisitorId() : "-",
                         rec.getFormattedEntryTime(),
-                        rec.getFormattedExitTime(), 
+                        rec.getFormattedExitTime(),
                         rec.isSurrenderedVisitorId() ? "Yes" : "No"
                 });
             }
+        }
+
+        userModel.setRowCount(0);
+        if (isAdmin) for (ParkingService.UserAccount account : service.getAccounts()) {
+            userModel.addRow(new Object[]{account.getUserId(), account.getName(), account.getUserType().getLabel(), account.getProfileInfo()});
+        }
+    }
+
+    /**
+     * Custom table cell renderer that:
+     * - Colors the Status cell green (Available), red (Occupied), or orange (Reserved)
+     * - Alternates row background colors (white / very light gray) for readability
+     */
+    private static class StatusTableCellRenderer implements TableCellRenderer {
+
+        private final TableCellRenderer defaultRenderer;
+
+        StatusTableCellRenderer() {
+            this.defaultRenderer = new DefaultTableCellRenderer();
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                                                       boolean isSelected, boolean hasFocus,
+                                                       int row, int column) {
+            Component c = defaultRenderer.getTableCellRendererComponent(
+                    table, value, isSelected, hasFocus, row, column);
+
+            if (!isSelected) {
+                // Alternating row colors
+                c.setBackground(row % 2 == 0 ? Theme.CARD_WHITE : new Color(248, 250, 252));
+            }
+
+            // Color the Status column (index 3 in slot table, index 6 in reservation table)
+            if (value instanceof String && column >= 0) {
+                String text = value.toString();
+                if (text.equalsIgnoreCase("Available")) {
+                    c.setForeground(Theme.STATUS_GREEN);
+                    c.setFont(Theme.FONT_LABEL_BOLD);
+                } else if (text.equalsIgnoreCase("Occupied") || text.contains("Occupied")) {
+                    c.setForeground(Theme.STATUS_RED);
+                    c.setFont(Theme.FONT_LABEL_BOLD);
+                } else if (text.equalsIgnoreCase("Reserved") || text.contains("Reserved")) {
+                    c.setForeground(Theme.STATUS_ORANGE);
+                    c.setFont(Theme.FONT_LABEL_BOLD);
+                } else if (text.equalsIgnoreCase("Pending") || text.equalsIgnoreCase("Approved")
+                        || text.equalsIgnoreCase("Rejected") || text.equalsIgnoreCase("Completed")
+                        || text.equalsIgnoreCase("Cancelled")) {
+                    c.setFont(Theme.FONT_LABEL_BOLD);
+                } else {
+                    c.setForeground(Theme.TEXT_DARK);
+                    c.setFont(Theme.FONT_TABLE_CELL);
+                }
+            } else {
+                c.setForeground(Theme.TEXT_DARK);
+                c.setFont(Theme.FONT_TABLE_CELL);
+            }
+
+            return c;
         }
     }
 }

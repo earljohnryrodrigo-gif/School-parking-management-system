@@ -14,7 +14,17 @@ public class Main {
 
             JFrame frame = new JFrame("Parking-ka-BOSS");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setSize(920, 560);
+            frame.setUndecorated(false);
+            frame.addWindowListener(new java.awt.event.WindowAdapter() {
+                @Override public void windowClosing(java.awt.event.WindowEvent event) {
+                    for (Window window : Window.getWindows()) {
+                        if (window != frame && window.isDisplayable()) window.dispose();
+                    }
+                    frame.dispose();
+                    System.exit(0);
+                }
+            });
+            frame.setSize(1120, 720);
 
             CardLayout cardLayout = new CardLayout();
             JPanel rootPanel = new JPanel(cardLayout);

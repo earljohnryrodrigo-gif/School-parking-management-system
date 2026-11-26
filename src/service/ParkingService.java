@@ -30,12 +30,18 @@ public class ParkingService {
         private final String name;
         private final String password;
         private final UserType userType;
+        private final String profileInfo;
 
         public UserAccount(String userId, String name, String password, UserType userType) {
+            this(userId, name, password, userType, "");
+        }
+
+        public UserAccount(String userId, String name, String password, UserType userType, String profileInfo) {
             this.userId = userId;
             this.name = name;
             this.password = password;
             this.userType = userType;
+            this.profileInfo = profileInfo == null ? "" : profileInfo;
         }
 
         public String getUserId() {
@@ -53,6 +59,8 @@ public class ParkingService {
         public UserType getUserType() {
             return userType;
         }
+
+        public String getProfileInfo() { return profileInfo; }
     }
 
     private final Map<String, UserAccount> accounts = new HashMap<>();
@@ -70,9 +78,12 @@ public class ParkingService {
     private int reservationCounter = 1;
     private int recordCounter = 1;
     private int vehicleCounter = 1;
+    private boolean seedingInitialData;
 
     public ParkingService() {
+        seedingInitialData = true;
         seedInitialData();
+        seedingInitialData = false;
     }
 
     private void seedInitialData() {
@@ -102,6 +113,8 @@ public class ParkingService {
 
         slots.add(new ParkingSlot("P-02", "Standard", "School Personnel", true));
         slots.add(new ParkingSlot("P-03", "Standard", "School Personnel", true));
+        slots.add(new ParkingSlot("P-04", "Standard", "School Personnel", true));
+        slots.add(new ParkingSlot("P-05", "Standard", "School Personnel", true));
 
         slots.add(new ParkingSlot("V-01", "Standard", "Visitor", true));
         slots.add(new ParkingSlot("V-02", "Standard", "Visitor", true));
@@ -123,14 +136,19 @@ public class ParkingService {
         );
         reservations.add(sampleRes);
 
-        ParkingRecord sampleRec = new ParkingRecord("REC-" + (recordCounter++), "VEH-1", "S-03", null);
+        ParkingRecord sampleRec = new ParkingRecord("REC-" + (recordCounter++), "VEH-1", "S-03", students.get("student1") != null ? students.get("student1").getStudentId() : null);
         records.add(sampleRec);
     }
 
     public boolean registerAccount(String name, String password, UserType userType) {
+        return registerAccount(name, password, userType, "");
+    }
+
+    public boolean registerAccount(String name, String password, UserType userType, String profileInfo) {
         if (isBlank(name) || isBlank(password) || userType == null) {
             return false;
         }
+        if (userType == UserType.PARKING_ADMINISTRATOR && !seedingInitialData) return false;
         String key = name.trim().toLowerCase();
         if (accounts.containsKey(key)) {
             return false;
@@ -145,7 +163,7 @@ public class ParkingService {
         String id = prefix + (++userCounter);
         String cleanName = name.trim();
 
-        UserAccount acc = new UserAccount(id, cleanName, password, userType);
+        UserAccount acc = new UserAccount(id, cleanName, password, userType, profileInfo == null ? "" : profileInfo.trim());
         accounts.put(key, acc);
 
         switch (userType) {
@@ -169,6 +187,22 @@ public class ParkingService {
         return null;
     }
 
+    /**
+     * Logs in a user and automatically identifies their role from the registered account.
+     * No user-type selection is required -- the account already carries the UserType.
+     */
+    public UserAccount login(String name, String password) {
+        if (isBlank(name) || isBlank(password)) {
+            return null;
+        }
+        UserAccount acc = accounts.get(name.trim().toLowerCase());
+        if (acc != null && acc.getPassword().equals(password)) {
+            this.currentUser = acc;
+            return acc;
+        }
+        return null;
+    }
+
     public void logout() {
         this.currentUser = null;
     }
@@ -177,8 +211,97 @@ public class ParkingService {
         return currentUser;
     }
 
+    public List<UserAccount> getAccounts() {
+        return Collections.unmodifiableList(new ArrayList<>(accounts.values()));
+    }
+
     public List<ParkingSlot> getAllSlots() {
         return Collections.unmodifiableList(slots);
+    }
+
+    /**
+     * Returns parking slots filtered by the user's role.
+     * - Students: only Student zone slots (S-01 to S-04)
+     * - School Personnel: only School Personnel zone slots (P-01 to P-05)
+     * - Visitors: only Visitor zone slots (V-01)
+     * - Parking Administrators: all parking slots
+     */
+    public List<ParkingSlot> getSlotsForUser(UserType role) {
+        if (role == null) {
+            return Collections.emptyList();
+        }
+        if (role == UserType.PARKING_ADMINISTRATOR) {
+            return getAllSlots();
+        }
+
+        String zone;
+        switch (role) {
+            case STUDENT -> zone = "Student";
+            case SCHOOL_PERSONNEL -> zone = "School Personnel";
+            case VISITOR -> zone = "Visitor";
+            default -> zone = null;
+        }
+
+        List<ParkingSlot> filtered = new ArrayList<>();
+        for (ParkingSlot s : slots) {
+            if (zone != null && zone.equalsIgnoreCase(s.getZoneType())) {
+                filtered.add(s);
+            }
+        }
+        return Collections.unmodifiableList(filtered);
+    }
+
+    /**
+     * Classifies a parking slot's status:
+     * - AVAILABLE if the slot is available
+     * - RESERVED if the slot is unavailable but has an active reservation
+     * - OCCUPIED if the slot is unavailable with no active reservation
+     */
+    public enum SlotStatus {
+        AVAILABLE, OCCUPIED, RESERVED
+    }
+
+    public SlotStatus classifySlot(ParkingSlot slot) {
+        if (slot == null) {
+            return SlotStatus.OCCUPIED;
+        }
+        if (slot.checkAvailability()) {
+            return SlotStatus.AVAILABLE;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (Reservation r : reservations) {
+            if (r.getSlotNumber().equalsIgnoreCase(slot.getSlotNumber())
+                    && isActiveReservation(r, now)) {
+                return SlotStatus.RESERVED;
+            }
+        }
+        return SlotStatus.OCCUPIED;
+    }
+
+    private int statusOrder(SlotStatus status) {
+        return switch (status) {
+            case AVAILABLE -> 0;
+            case OCCUPIED -> 1;
+            case RESERVED -> 2;
+        };
+    }
+
+    /**
+     * Returns parking slots filtered by the user's role, sorted by status:
+     * Available first, then Occupied, then Reserved. Within each status
+     * group, slots are arranged in ascending slot number order.
+     */
+    public List<ParkingSlot> getSlotsSortedByStatus(UserType role) {
+        List<ParkingSlot> filtered = new ArrayList<>(getSlotsForUser(role));
+        filtered.sort((a, b) -> {
+            int orderA = statusOrder(classifySlot(a));
+            int orderB = statusOrder(classifySlot(b));
+            if (orderA != orderB) {
+                return Integer.compare(orderA, orderB);
+            }
+            return a.getSlotNumber().compareToIgnoreCase(b.getSlotNumber());
+        });
+        return filtered;
     }
 
     public ParkingSlot findSlot(String slotNumber) {
@@ -227,7 +350,7 @@ public class ParkingService {
             return "Unable to assign slot " + slot.getSlotNumber() + ".";
         }
 
-        records.add(new ParkingRecord("REC-" + (recordCounter++), "STUDENT-VEHICLE", slot.getSlotNumber(), null));
+        records.add(new ParkingRecord("REC-" + (recordCounter++), "STUDENT-VEHICLE", slot.getSlotNumber(), currentUser.getUserId()));
         return "OK";
     }
 
@@ -253,7 +376,7 @@ public class ParkingService {
             return "Unable to assign slot " + slot.getSlotNumber() + ".";
         }
 
-        records.add(new ParkingRecord("REC-" + (recordCounter++), "PERSONNEL-VEHICLE", slot.getSlotNumber(), null));
+        records.add(new ParkingRecord("REC-" + (recordCounter++), "PERSONNEL-VEHICLE", slot.getSlotNumber(), currentUser.getUserId()));
         return "OK";
     }
 
@@ -644,6 +767,34 @@ public class ParkingService {
         return "OK";
     }
 
+    public String updateSlot(String slotNumber, String slotType, String zoneType) {
+        if (currentUser == null || currentUser.getUserType() != UserType.PARKING_ADMINISTRATOR) return "Only Parking Administrators can edit slots.";
+        ParkingSlot slot = findSlot(slotNumber);
+        if (slot == null) return "Slot not found.";
+        if (!slot.checkAvailability()) return "Release the occupied or reserved slot before editing it.";
+        if (isBlank(slotType)) return "Slot type cannot be empty.";
+        String normalizedZone = normalizeZoneType(zoneType);
+        if (normalizedZone == null) return "Choose Student, School Personnel, or Visitor for the zone.";
+        slot.setSlotType(slotType.trim());
+        slot.setZoneType(normalizedZone);
+        return "OK";
+    }
+
+    public String deleteSlot(String slotNumber) {
+        if (currentUser == null || currentUser.getUserType() != UserType.PARKING_ADMINISTRATOR) return "Only Parking Administrators can delete slots.";
+        ParkingSlot slot = findSlot(slotNumber);
+        if (slot == null) return "Slot not found.";
+        if (!slot.checkAvailability()) return "Release the occupied or reserved slot before deleting it.";
+        LocalDateTime now = LocalDateTime.now();
+        for (Reservation reservation : reservations) {
+            if (reservation.getSlotNumber().equalsIgnoreCase(slot.getSlotNumber()) && isActiveReservation(reservation, now)) {
+                return "This slot has an active reservation and cannot be deleted.";
+            }
+        }
+        slots.remove(slot);
+        return "OK";
+    }
+
     private String normalizeZoneType(String zoneType) {
         String trimmed = zoneType.trim();
         if ("Student".equalsIgnoreCase(trimmed)) return "Student";
@@ -653,8 +804,12 @@ public class ParkingService {
     }
 
     public String registerVehicle(String plateNumber, String vehicleType, String stickerCategory, String ownerId, LocalDate expirationDate) {
-        if (currentUser == null || currentUser.getUserType() != UserType.PARKING_ADMINISTRATOR) {
-            return "Only Parking Administrators can register vehicles.";
+        if (currentUser == null) return "Not logged in.";
+        if (currentUser.getUserType() == UserType.PARKING_ADMINISTRATOR) {
+            // Administrators may register a vehicle for another owner.
+        } else {
+            ownerId = currentUser.getUserId();
+            stickerCategory = currentUser.getUserType().getLabel();
         }
         if (isBlank(plateNumber)) {
             return "Plate number is required.";
@@ -674,6 +829,9 @@ public class ParkingService {
         if (expirationDate.isBefore(LocalDate.now())) {
             return "Expiration date cannot be in the past.";
         }
+        for (Vehicle existing : vehicles) {
+            if (existing.getPlateNumber().equalsIgnoreCase(plateNumber.trim())) return "That plate number is already registered.";
+        }
         vehicles.add(new Vehicle(
                 "VEH-" + (vehicleCounter++),
                 plateNumber.trim().toUpperCase(),
@@ -687,6 +845,41 @@ public class ParkingService {
 
     public List<Vehicle> getVehicles() {
         return vehicles;
+    }
+
+    public List<Vehicle> getVehiclesForCurrentUser() {
+        if (currentUser == null) return Collections.emptyList();
+        if (currentUser.getUserType() == UserType.PARKING_ADMINISTRATOR) return getVehicles();
+        List<Vehicle> owned = new ArrayList<>();
+        for (Vehicle vehicle : vehicles) if (currentUser.getUserId().equals(vehicle.getOwnerId())) owned.add(vehicle);
+        return Collections.unmodifiableList(owned);
+    }
+
+    public String updateVehicle(String vehicleId, String plate, String type, LocalDate expiry) {
+        Vehicle vehicle = findEditableVehicle(vehicleId);
+        if (vehicle == null) return "Vehicle not found or you do not have permission to edit it.";
+        if (isBlank(plate) || isBlank(type) || expiry == null || expiry.isBefore(LocalDate.now())) return "Enter a plate, vehicle type, and a valid expiration date.";
+        for (Vehicle other : vehicles) if (!other.getVehicleId().equals(vehicleId) && other.getPlateNumber().equalsIgnoreCase(plate.trim())) return "That plate number is already registered.";
+        vehicle.setPlateNumber(plate.trim().toUpperCase());
+        vehicle.setVehicleType(type.trim());
+        vehicle.setExpirationDate(expiry);
+        return "OK";
+    }
+
+    public String deleteVehicle(String vehicleId) {
+        Vehicle vehicle = findEditableVehicle(vehicleId);
+        if (vehicle == null) return "Vehicle not found or you do not have permission to delete it.";
+        vehicles.remove(vehicle);
+        return "OK";
+    }
+
+    private Vehicle findEditableVehicle(String vehicleId) {
+        if (currentUser == null || isBlank(vehicleId)) return null;
+        for (Vehicle vehicle : vehicles) {
+            if (vehicle.getVehicleId().equalsIgnoreCase(vehicleId)
+                    && (currentUser.getUserType() == UserType.PARKING_ADMINISTRATOR || currentUser.getUserId().equals(vehicle.getOwnerId()))) return vehicle;
+        }
+        return null;
     }
 
     public List<ParkingRecord> getRecords() {
