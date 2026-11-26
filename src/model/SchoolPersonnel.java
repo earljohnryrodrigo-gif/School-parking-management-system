@@ -35,6 +35,19 @@ public class SchoolPersonnel {
         this.assignedSlotNumber = assignedSlotNumber;
     }
 
+    public boolean selectSlot(ParkingSlot slot) {
+        if (assignedSlotNumber != null || slot == null) {
+            return false;
+        }
+        if (!"School Personnel".equalsIgnoreCase(slot.getZoneType()) || !slot.checkAvailability()) {
+            return false;
+        }
+        slot.updateAvailability(false);
+        slot.setAssignedPersonnelId(personnelId);
+        this.assignedSlotNumber = slot.getSlotNumber();
+        return true;
+    }
+
     public String viewReservedSlot() {
         return reservedSlotNumber;
     }
@@ -45,5 +58,9 @@ public class SchoolPersonnel {
         }
         this.reservedSlotNumber = slotNumber.trim();
         return true;
+    }
+
+    public void clearReservedSlot() {
+        this.reservedSlotNumber = null;
     }
 }

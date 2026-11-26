@@ -42,6 +42,10 @@ public class Student {
         return true;
     }
 
+    public void setAssignedSlotNumber(String assignedSlotNumber) {
+        this.assignedSlotNumber = assignedSlotNumber;
+    }
+
     public void clearAssignedSlot() {
         this.assignedSlotNumber = null;
     }

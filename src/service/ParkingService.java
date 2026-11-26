@@ -10,12 +10,20 @@ import model.Vehicle;
 import model.Visitor;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class ParkingService {
+
+    private static final DateTimeFormatter RESERVATION_FORMAT =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm").withResolverStyle(ResolverStyle.STRICT);
 
     public static class UserAccount {
         private final String userId;
@@ -68,61 +76,59 @@ public class ParkingService {
     }
 
     private void seedInitialData() {
-        // Default demo accounts
         registerAccount("admin", "1234", UserType.PARKING_ADMINISTRATOR);
         registerAccount("student1", "1234", UserType.STUDENT);
         registerAccount("staff1", "1234", UserType.SCHOOL_PERSONNEL);
         registerAccount("visitor1", "1234", UserType.VISITOR);
 
-        // Student slots
         slots.add(new ParkingSlot("S-01", "Standard", "Student", true));
         slots.add(new ParkingSlot("S-02", "Standard", "Student", true));
         ParkingSlot s03 = new ParkingSlot("S-03", "Standard", "Student", false);
-        s03.setAssignedStudentId("ST-102");
+        Student student1 = students.get("student1");
+        if (student1 != null) {
+            s03.setAssignedStudentId(student1.getStudentId());
+            student1.setAssignedSlotNumber("S-03");
+        }
         slots.add(s03);
         slots.add(new ParkingSlot("S-04", "Motorcycle", "Student", true));
 
-        // School Personnel slots (Option B: assigned permanent slots)
         ParkingSlot p01 = new ParkingSlot("P-01", "Standard", "School Personnel", false);
-        p01.setAssignedPersonnelId("staff1");
-        slots.add(p01);
-
         SchoolPersonnel staff1 = personnelMap.get("staff1");
         if (staff1 != null) {
+            p01.setAssignedPersonnelId(staff1.getPersonnelId());
             staff1.setAssignedSlotNumber("P-01");
         }
+        slots.add(p01);
 
         slots.add(new ParkingSlot("P-02", "Standard", "School Personnel", true));
         slots.add(new ParkingSlot("P-03", "Standard", "School Personnel", true));
 
-        // Visitor slots
         slots.add(new ParkingSlot("V-01", "Standard", "Visitor", true));
         slots.add(new ParkingSlot("V-02", "Standard", "Visitor", true));
 
-        // Sample vehicle registrations
         vehicles.add(new Vehicle("VEH-1", "ABC-1234", "Sedan", "Student", "student1", LocalDate.now().plusMonths(6)));
         vehicles.add(new Vehicle("VEH-2", "XYZ-9876", "SUV", "School Personnel", "staff1", LocalDate.now().plusMonths(10)));
 
-        // Sample pending visitor reservation
+        UserAccount visitorAcc = accounts.get("visitor1");
+        LocalDate sampleDay = LocalDate.now().plusDays(1);
         Reservation sampleRes = new Reservation(
                 "RES-" + (reservationCounter++),
-                "VIS-104",
+                visitorAcc != null ? visitorAcc.getUserId() : "VIS-104",
                 "visitor1",
                 UserType.VISITOR,
                 "V-02",
-                "2026-11-21 09:00",
-                "2026-11-21 12:00",
+                sampleDay + " 09:00",
+                sampleDay + " 12:00",
                 "Pending"
         );
         reservations.add(sampleRes);
 
-        // Sample entry record
         ParkingRecord sampleRec = new ParkingRecord("REC-" + (recordCounter++), "VEH-1", "S-03", null);
         records.add(sampleRec);
     }
 
     public boolean registerAccount(String name, String password, UserType userType) {
-        if (name == null || name.trim().isEmpty() || password == null || password.isEmpty() || userType == null) {
+        if (isBlank(name) || isBlank(password) || userType == null) {
             return false;
         }
         String key = name.trim().toLowerCase();
@@ -152,7 +158,7 @@ public class ParkingService {
     }
 
     public UserAccount login(String name, String password, UserType expectedType) {
-        if (name == null || password == null || expectedType == null) {
+        if (isBlank(name) || isBlank(password) || expectedType == null) {
             return null;
         }
         UserAccount acc = accounts.get(name.trim().toLowerCase());
@@ -172,11 +178,11 @@ public class ParkingService {
     }
 
     public List<ParkingSlot> getAllSlots() {
-        return slots;
+        return Collections.unmodifiableList(slots);
     }
 
     public ParkingSlot findSlot(String slotNumber) {
-        if (slotNumber == null) return null;
+        if (isBlank(slotNumber)) return null;
         for (ParkingSlot s : slots) {
             if (s.getSlotNumber().equalsIgnoreCase(slotNumber.trim())) {
                 return s;
@@ -199,7 +205,6 @@ public class ParkingService {
         return null;
     }
 
-    // Option B: Student selects an available Student slot for immediate use
     public String selectSlotForStudent(String slotNumber) {
         if (currentUser == null || currentUser.getUserType() != UserType.STUDENT) {
             return "Only Students can select slots for immediate use.";
@@ -218,49 +223,216 @@ public class ParkingService {
             return "Slot " + slot.getSlotNumber() + " is not available.";
         }
 
-        slot.updateAvailability(false);
-        slot.setAssignedStudentId(currentUser.getName());
-        st.selectSlot(slot);
+        if (!st.selectSlot(slot)) {
+            return "Unable to assign slot " + slot.getSlotNumber() + ".";
+        }
 
         records.add(new ParkingRecord("REC-" + (recordCounter++), "STUDENT-VEHICLE", slot.getSlotNumber(), null));
         return "OK";
     }
 
-    // Option B: Visitor (or Personnel) requests a reservation for admin approval
+    public String selectSlotForPersonnel(String slotNumber) {
+        if (currentUser == null || currentUser.getUserType() != UserType.SCHOOL_PERSONNEL) {
+            return "Only School Personnel can select slots for immediate use.";
+        }
+        SchoolPersonnel sp = personnelMap.get(currentUser.getName().toLowerCase());
+        if (sp == null) return "Personnel profile not found.";
+        if (sp.viewAssignedSlot() != null) {
+            return "You already have an active slot (" + sp.viewAssignedSlot() + ").";
+        }
+        ParkingSlot slot = findSlot(slotNumber);
+        if (slot == null) return "Slot not found.";
+        if (!"School Personnel".equalsIgnoreCase(slot.getZoneType())) {
+            return "School Personnel can only select School Personnel zone slots.";
+        }
+        if (!slot.checkAvailability()) {
+            return "Slot " + slot.getSlotNumber() + " is not available.";
+        }
+
+        if (!sp.selectSlot(slot)) {
+            return "Unable to assign slot " + slot.getSlotNumber() + ".";
+        }
+
+        records.add(new ParkingRecord("REC-" + (recordCounter++), "PERSONNEL-VEHICLE", slot.getSlotNumber(), null));
+        return "OK";
+    }
+
     public String requestReservation(String slotNumber, String startDateTime, String endDateTime) {
         if (currentUser == null) return "Not logged in.";
-        if (currentUser.getUserType() != UserType.VISITOR && currentUser.getUserType() != UserType.SCHOOL_PERSONNEL) {
+        UserType role = currentUser.getUserType();
+        if (role != UserType.VISITOR && role != UserType.SCHOOL_PERSONNEL) {
             return "Only Visitors and School Personnel can request reservations.";
         }
         ParkingSlot slot = findSlot(slotNumber);
         if (slot == null) return "Slot not found.";
-        if (currentUser.getUserType() == UserType.VISITOR && !"Visitor".equalsIgnoreCase(slot.getZoneType())) {
+        if (role == UserType.VISITOR && !"Visitor".equalsIgnoreCase(slot.getZoneType())) {
             return "Visitors can only request Visitor zone slots.";
+        }
+        if (role == UserType.SCHOOL_PERSONNEL && !"School Personnel".equalsIgnoreCase(slot.getZoneType())) {
+            return "School Personnel can only request School Personnel zone slots.";
+        }
+        if (role == UserType.SCHOOL_PERSONNEL) {
+            SchoolPersonnel holder = personnelMap.get(currentUser.getName().toLowerCase());
+            if (holder != null && holder.viewAssignedSlot() != null) {
+                return "You already have an assigned slot (" + holder.viewAssignedSlot()
+                        + "). Release it before requesting a reservation.";
+            }
         }
         if (!slot.checkAvailability()) {
             return "Slot " + slot.getSlotNumber() + " is currently not available.";
         }
 
-        if (currentUser.getUserType() == UserType.VISITOR) {
+        String dateError = validateReservationWindow(startDateTime, endDateTime);
+        if (dateError != null) {
+            return dateError;
+        }
+
+        String conflictError = validateReservationConflicts(slot, startDateTime, endDateTime);
+        if (conflictError != null) {
+            return conflictError;
+        }
+
+        if (role == UserType.VISITOR) {
             Visitor v = visitors.get(currentUser.getName().toLowerCase());
             if (v != null) v.requestReservation(slot.getSlotNumber());
-        } else {
-            SchoolPersonnel sp = personnelMap.get(currentUser.getName().toLowerCase());
-            if (sp != null) sp.reservedSlot(slot.getSlotNumber());
         }
 
         Reservation res = new Reservation(
                 "RES-" + (reservationCounter++),
                 currentUser.getUserId(),
                 currentUser.getName(),
-                currentUser.getUserType(),
+                role,
                 slot.getSlotNumber(),
-                startDateTime,
-                endDateTime,
+                startDateTime.trim(),
+                endDateTime.trim(),
                 "Pending"
         );
         reservations.add(res);
         return "OK";
+    }
+
+    public String validateReservationWindow(String startDateTime, String endDateTime) {
+        if (isBlank(startDateTime) || isBlank(endDateTime)) {
+            return "Start and end date/time are required.";
+        }
+        LocalDateTime start = parseReservationDateTime(startDateTime);
+        LocalDateTime end = parseReservationDateTime(endDateTime);
+        if (start == null || end == null) {
+            return "Invalid date/time format. Use yyyy-MM-dd HH:mm (e.g., 2026-11-27 08:00).";
+        }
+        if (!start.isAfter(LocalDateTime.now())) {
+            return "Start time must be in the future.";
+        }
+        if (!end.isAfter(start)) {
+            return "End time must be after the start time.";
+        }
+        return null;
+    }
+
+    private String validateReservationConflicts(ParkingSlot slot, String startDateTime, String endDateTime) {
+        LocalDateTime newStart = parseReservationDateTime(startDateTime);
+        LocalDateTime newEnd = parseReservationDateTime(endDateTime);
+        if (newStart == null || newEnd == null) {
+            return "Invalid date/time format. Use yyyy-MM-dd HH:mm (e.g., 2026-11-27 08:00).";
+        }
+
+        String requesterId = currentUser.getUserId();
+        LocalDateTime now = LocalDateTime.now();
+
+        for (Reservation existing : reservations) {
+            if (!isActiveReservation(existing, now)) continue;
+
+            LocalDateTime exStart = parseReservationDateTime(existing.getStartDateTime());
+            LocalDateTime exEnd = parseReservationDateTime(existing.getEndDateTime());
+            if (exStart == null || exEnd == null) continue;
+            if (!windowsOverlap(newStart, newEnd, exStart, exEnd)) continue;
+
+            boolean sameRequester = requesterId.equals(existing.getRequesterId());
+            boolean sameSlot = existing.getSlotNumber().equalsIgnoreCase(slot.getSlotNumber());
+
+            if (sameRequester && sameSlot && exStart.equals(newStart) && exEnd.equals(newEnd)) {
+                return "Duplicate reservation: you already requested slot " + slot.getSlotNumber()
+                        + " for this time (" + existing.getReservationId() + ").";
+            }
+            if (sameSlot) {
+                return "Slot " + slot.getSlotNumber() + " is already reserved for an overlapping time.";
+            }
+            if (sameRequester) {
+                return "You already have a reservation (" + existing.getReservationId()
+                        + ") for slot " + existing.getSlotNumber() + " that overlaps this time.";
+            }
+        }
+
+        if (currentUser.getUserType() == UserType.SCHOOL_PERSONNEL) {
+            for (Reservation existing : reservations) {
+                if (isActiveReservation(existing, now) && requesterId.equals(existing.getRequesterId())) {
+                    return "You already have an active reservation (" + existing.getReservationId()
+                            + ") for slot " + existing.getSlotNumber()
+                            + ". School Personnel can hold only one active reservation at a time.";
+                }
+            }
+        }
+        return null;
+    }
+
+    private String validateApprovalConflicts(Reservation target) {
+        LocalDateTime tStart = parseReservationDateTime(target.getStartDateTime());
+        LocalDateTime tEnd = parseReservationDateTime(target.getEndDateTime());
+        if (tStart == null || tEnd == null) {
+            return "Reservation has an invalid date/time. Reject it instead.";
+        }
+        for (Reservation other : reservations) {
+            if (other == target || !"Approved".equalsIgnoreCase(other.getStatus())) continue;
+
+            LocalDateTime oStart = parseReservationDateTime(other.getStartDateTime());
+            LocalDateTime oEnd = parseReservationDateTime(other.getEndDateTime());
+            if (oStart == null || oEnd == null) continue;
+            if (!windowsOverlap(tStart, tEnd, oStart, oEnd)) continue;
+
+            if (other.getSlotNumber().equalsIgnoreCase(target.getSlotNumber())) {
+                return "Slot " + target.getSlotNumber() + " is already approved for an overlapping time ("
+                        + other.getReservationId() + ").";
+            }
+            if (other.getRequesterId().equals(target.getRequesterId())) {
+                return "The requester already has an approved reservation (" + other.getReservationId()
+                        + ") that overlaps this time.";
+            }
+        }
+        return null;
+    }
+
+    private String validatePersonnelApprovalLimit(Reservation target) {
+        if (target.getRequesterRole() != UserType.SCHOOL_PERSONNEL) return null;
+        LocalDateTime now = LocalDateTime.now();
+        for (Reservation other : reservations) {
+            if (other == target) continue;
+            if (isActiveReservation(other, now) && target.getRequesterId().equals(other.getRequesterId())) {
+                return "You already have an active reservation (" + other.getReservationId()
+                        + ") for slot " + other.getSlotNumber()
+                        + ". School Personnel can hold only one active reservation at a time.";
+            }
+        }
+        return null;
+    }
+
+    private boolean isActiveReservation(Reservation r, LocalDateTime now) {
+        boolean pendingOrApproved = "Pending".equalsIgnoreCase(r.getStatus()) || "Approved".equalsIgnoreCase(r.getStatus());
+        if (!pendingOrApproved) return false;
+        LocalDateTime end = parseReservationDateTime(r.getEndDateTime());
+        return end == null || end.isAfter(now);
+    }
+
+    private boolean windowsOverlap(LocalDateTime aStart, LocalDateTime aEnd, LocalDateTime bStart, LocalDateTime bEnd) {
+        return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
+    }
+
+    private LocalDateTime parseReservationDateTime(String text) {
+        if (isBlank(text)) return null;
+        try {
+            return LocalDateTime.parse(text.trim(), RESERVATION_FORMAT);
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
     }
 
     public List<Reservation> getReservations() {
@@ -280,15 +452,34 @@ public class ParkingService {
                 if (slot == null || !slot.checkAvailability()) {
                     return "Target slot is no longer available.";
                 }
+                String expectedZone = r.getRequesterRole() == UserType.VISITOR ? "Visitor" : "School Personnel";
+                if (!expectedZone.equalsIgnoreCase(slot.getZoneType())) {
+                    return "Slot " + slot.getSlotNumber() + " is not in the requester's zone.";
+                }
+                String windowError = validateReservationWindow(r.getStartDateTime(), r.getEndDateTime());
+                if (windowError != null) {
+                    return "Cannot approve: " + windowError + " Reject this reservation instead.";
+                }
+                String approvalConflict = validateApprovalConflicts(r);
+                if (approvalConflict != null) {
+                    return approvalConflict;
+                }
+                String personnelLimit = validatePersonnelApprovalLimit(r);
+                if (personnelLimit != null) {
+                    return personnelLimit;
+                }
                 r.approve();
                 slot.updateAvailability(false);
                 if (r.getRequesterRole() == UserType.VISITOR) {
-                    slot.setAssignedVisitorId(r.getRequesterName());
+                    slot.setAssignedVisitorId(r.getRequesterId());
                 } else {
-                    slot.setAssignedPersonnelId(r.getRequesterName());
+                    slot.setAssignedPersonnelId(r.getRequesterId());
+                    SchoolPersonnel sp = personnelMap.get(r.getRequesterName().toLowerCase());
+                    if (sp != null) sp.reservedSlot(slot.getSlotNumber());
                 }
-                ParkingRecord rec = new ParkingRecord("REC-" + (recordCounter++), "VISITOR-VEHICLE", slot.getSlotNumber(), r.getRequesterId());
-                rec.markVisitorIdSurrendered(true);
+                String vehicleLabel = r.getRequesterRole() == UserType.VISITOR ? "VISITOR-VEHICLE" : "PERSONNEL-VEHICLE";
+                ParkingRecord rec = new ParkingRecord("REC-" + (recordCounter++), vehicleLabel, slot.getSlotNumber(), r.getRequesterId());
+                rec.markVisitorIdSurrendered(r.getRequesterRole() == UserType.VISITOR);
                 records.add(rec);
                 return "OK";
             }
@@ -314,22 +505,37 @@ public class ParkingService {
 
     public String releaseSlot(String slotNumber) {
         if (currentUser == null) return "Not logged in.";
+        UserType role = currentUser.getUserType();
+        if (role == UserType.VISITOR) {
+            return "Visitors are not allowed to release slots.";
+        }
+
         ParkingSlot slot = findSlot(slotNumber);
         if (slot == null) return "Slot not found.";
 
-        boolean isAdmin = currentUser.getUserType() == UserType.PARKING_ADMINISTRATOR;
-        String holder = slot.getAssignedHolderLabel();
-        if (!isAdmin && !holder.toLowerCase().startsWith(currentUser.getName().toLowerCase())) {
+        boolean isAdmin = role == UserType.PARKING_ADMINISTRATOR;
+        if (!isAdmin && !isHolder(slot, currentUser.getUserId())) {
             return "You can only release your own slot.";
         }
 
+        LocalDateTime now = LocalDateTime.now();
+        String holderId = holderIdOf(slot);
+        if (holderId != null) {
+            endApprovedReservations(slot, holderId, now);
+        }
+
         if (slot.getAssignedStudentId() != null) {
-            Student st = students.get(slot.getAssignedStudentId().toLowerCase());
+            Student st = findStudentById(slot.getAssignedStudentId());
             if (st != null) st.clearAssignedSlot();
         }
         if (slot.getAssignedPersonnelId() != null) {
-            SchoolPersonnel sp = personnelMap.get(slot.getAssignedPersonnelId().toLowerCase());
-            if (sp != null) sp.setAssignedSlotNumber(null);
+            SchoolPersonnel sp = findPersonnelById(slot.getAssignedPersonnelId());
+            if (sp != null) {
+                sp.setAssignedSlotNumber(null);
+                if (slot.getSlotNumber().equalsIgnoreCase(sp.viewReservedSlot())) {
+                    sp.clearReservedSlot();
+                }
+            }
         }
 
         slot.clearAssignments();
@@ -345,32 +551,134 @@ public class ParkingService {
         return "OK";
     }
 
+    private String holderIdOf(ParkingSlot slot) {
+        if (slot.getAssignedVisitorId() != null) return slot.getAssignedVisitorId();
+        if (slot.getAssignedPersonnelId() != null) return slot.getAssignedPersonnelId();
+        return slot.getAssignedStudentId();
+    }
+
+    private void endApprovedReservations(ParkingSlot slot, String holderId, LocalDateTime now) {
+        for (Reservation r : reservations) {
+            if (!"Approved".equalsIgnoreCase(r.getStatus())) continue;
+            if (!r.getSlotNumber().equalsIgnoreCase(slot.getSlotNumber())) continue;
+            if (!holderId.equals(r.getRequesterId())) continue;
+
+            LocalDateTime start = parseReservationDateTime(r.getStartDateTime());
+            if (start != null && !start.isAfter(now)) {
+                r.complete();
+            } else {
+                r.cancel();
+            }
+        }
+    }
+
+    private boolean isHolder(ParkingSlot slot, String userId) {
+        if (userId == null) return false;
+        return userId.equals(slot.getAssignedStudentId())
+                || userId.equals(slot.getAssignedPersonnelId())
+                || userId.equals(slot.getAssignedVisitorId());
+    }
+
+    private Student findStudentById(String studentId) {
+        for (Student st : students.values()) {
+            if (st.getStudentId().equals(studentId)) return st;
+        }
+        return null;
+    }
+
+    private SchoolPersonnel findPersonnelById(String personnelId) {
+        for (SchoolPersonnel sp : personnelMap.values()) {
+            if (sp.getPersonnelId().equals(personnelId)) return sp;
+        }
+        return null;
+    }
+
+    private Visitor findVisitorById(String visitorId) {
+        for (Visitor v : visitors.values()) {
+            if (v.getVisitorId().equals(visitorId)) return v;
+        }
+        return null;
+    }
+
+    public String getSlotHolderDisplay(ParkingSlot slot) {
+        if (slot == null) return "-";
+        if (slot.getAssignedStudentId() != null) {
+            Student st = findStudentById(slot.getAssignedStudentId());
+            String name = st != null ? st.getName() : "Unknown";
+            return name + " (" + slot.getAssignedStudentId() + ") - Student";
+        }
+        if (slot.getAssignedPersonnelId() != null) {
+            SchoolPersonnel sp = findPersonnelById(slot.getAssignedPersonnelId());
+            String name = sp != null ? sp.getName() : "Unknown";
+            return name + " (" + slot.getAssignedPersonnelId() + ") - School Personnel";
+        }
+        if (slot.getAssignedVisitorId() != null) {
+            Visitor v = findVisitorById(slot.getAssignedVisitorId());
+            String name = v != null ? v.getName() : "Unknown";
+            return name + " (" + slot.getAssignedVisitorId() + ") - Visitor";
+        }
+        return "-";
+    }
+
     public String addSlot(String slotNumber, String slotType, String zoneType) {
         if (currentUser == null || currentUser.getUserType() != UserType.PARKING_ADMINISTRATOR) {
             return "Only Parking Administrators can add slots.";
         }
-        if (slotNumber == null || slotNumber.trim().isEmpty()) {
+        if (isBlank(slotNumber)) {
             return "Slot number cannot be empty.";
         }
-        if (findSlot(slotNumber) != null) {
-            return "Slot " + slotNumber.toUpperCase() + " already exists.";
+        if (isBlank(slotType)) {
+            return "Slot type cannot be empty.";
         }
-        slots.add(new ParkingSlot(slotNumber.trim().toUpperCase(), slotType, zoneType, true));
+        if (isBlank(zoneType)) {
+            return "Zone type cannot be empty.";
+        }
+        String normalizedZone = normalizeZoneType(zoneType);
+        if (normalizedZone == null) {
+            return "Invalid zone type. Allowed zones: Student, School Personnel, Visitor.";
+        }
+        if (findSlot(slotNumber) != null) {
+            return "Slot " + slotNumber.trim().toUpperCase() + " already exists.";
+        }
+        slots.add(new ParkingSlot(slotNumber.trim().toUpperCase(), slotType.trim(), normalizedZone, true));
         return "OK";
+    }
+
+    private String normalizeZoneType(String zoneType) {
+        String trimmed = zoneType.trim();
+        if ("Student".equalsIgnoreCase(trimmed)) return "Student";
+        if ("School Personnel".equalsIgnoreCase(trimmed)) return "School Personnel";
+        if ("Visitor".equalsIgnoreCase(trimmed)) return "Visitor";
+        return null;
     }
 
     public String registerVehicle(String plateNumber, String vehicleType, String stickerCategory, String ownerId, LocalDate expirationDate) {
         if (currentUser == null || currentUser.getUserType() != UserType.PARKING_ADMINISTRATOR) {
             return "Only Parking Administrators can register vehicles.";
         }
-        if (plateNumber == null || plateNumber.trim().isEmpty()) {
+        if (isBlank(plateNumber)) {
             return "Plate number is required.";
+        }
+        if (isBlank(vehicleType)) {
+            return "Vehicle type is required.";
+        }
+        if (isBlank(stickerCategory)) {
+            return "Sticker category is required.";
+        }
+        if (isBlank(ownerId)) {
+            return "Owner ID is required.";
+        }
+        if (expirationDate == null) {
+            return "Expiration date is required.";
+        }
+        if (expirationDate.isBefore(LocalDate.now())) {
+            return "Expiration date cannot be in the past.";
         }
         vehicles.add(new Vehicle(
                 "VEH-" + (vehicleCounter++),
                 plateNumber.trim().toUpperCase(),
-                vehicleType,
-                stickerCategory,
+                vehicleType.trim(),
+                stickerCategory.trim(),
                 ownerId.trim(),
                 expirationDate
         ));
@@ -383,5 +691,9 @@ public class ParkingService {
 
     public List<ParkingRecord> getRecords() {
         return records;
+    }
+
+    private boolean isBlank(String text) {
+        return text == null || text.trim().isEmpty();
     }
 }

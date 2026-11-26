@@ -45,12 +45,21 @@ public class DashboardPanel extends JPanel {
     };
 
     private final JTextField slotInput = new JTextField(8);
-    private final JTextField startInput = new JTextField("2026-11-21 08:00", 13);
-    private final JTextField endInput = new JTextField("2026-11-21 17:00", 13);
+    private final JLabel startLabel = new JLabel("Start:");
+    private final JTextField startInput = new JTextField(defaultReservationStart(), 13);
+    private final JLabel endLabel = new JLabel("End:");
+    private final JTextField endInput = new JTextField(defaultReservationEnd(), 13);
 
-    private final JButton primaryActionBtn = new JButton("Select / Request Slot");
+    private final JButton selectImmediateBtn = new JButton("Select Slot (Immediate)");
+    private final JButton requestReservationBtn = new JButton("Request Reservation");
     private final JButton releaseBtn = new JButton("Release / Exit Slot");
     private final JButton addSlotBtn = new JButton("+ Add Slot");
+
+    private final JTabbedPane tabs = new JTabbedPane();
+    private JPanel slotsTabPanel;
+    private JPanel reservationsTabPanel;
+    private JPanel vehiclesTabPanel;
+    private JPanel recordsTabPanel;
 
     private final JPanel adminResActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
     private final JPanel adminVehicleActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
@@ -65,6 +74,14 @@ public class DashboardPanel extends JPanel {
         add(buildHeader(), BorderLayout.NORTH);
         add(buildTabs(), BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
+    }
+
+    private static String defaultReservationStart() {
+        return LocalDate.now().plusDays(1) + " 08:00";
+    }
+
+    private static String defaultReservationEnd() {
+        return LocalDate.now().plusDays(1) + " 17:00";
     }
 
     private JPanel buildHeader() {
@@ -97,12 +114,36 @@ public class DashboardPanel extends JPanel {
     }
 
     private JTabbedPane buildTabs() {
-        JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Parking Slots", buildSlotsTab());
-        tabs.addTab("Reservations", buildReservationsTab());
-        tabs.addTab("Registered Vehicles", buildVehiclesTab());
-        tabs.addTab("Entry / Exit Logs", buildRecordsTab());
+        slotsTabPanel = buildSlotsTab();
+        reservationsTabPanel = buildReservationsTab();
+        vehiclesTabPanel = buildVehiclesTab();
+        recordsTabPanel = buildRecordsTab();
+
+        tabs.addTab("Parking Slots", slotsTabPanel);
+        tabs.addTab("Reservations", reservationsTabPanel);
+        tabs.addTab("Registered Vehicles", vehiclesTabPanel);
+        tabs.addTab("Entry / Exit Logs", recordsTabPanel);
         return tabs;
+    }
+
+    private void rebuildTabsForRole(UserType role) {
+        Component selected = tabs.getSelectedComponent();
+        tabs.removeAll();
+
+        tabs.addTab("Parking Slots", slotsTabPanel);
+        if (role != UserType.STUDENT) {
+            tabs.addTab("Reservations", reservationsTabPanel);
+        }
+        if (role == UserType.PARKING_ADMINISTRATOR) {
+            tabs.addTab("Registered Vehicles", vehiclesTabPanel);
+            tabs.addTab("Entry / Exit Logs", recordsTabPanel);
+        }
+
+        if (selected != null && tabs.indexOfComponent(selected) >= 0) {
+            tabs.setSelectedComponent(selected);
+        } else {
+            tabs.setSelectedIndex(0);
+        }
     }
 
     private JPanel buildSlotsTab() {
@@ -111,11 +152,12 @@ public class DashboardPanel extends JPanel {
         JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
         controls.add(new JLabel("Slot ID:"));
         controls.add(slotInput);
-        controls.add(new JLabel("Start:"));
+        controls.add(startLabel);
         controls.add(startInput);
-        controls.add(new JLabel("End:"));
+        controls.add(endLabel);
         controls.add(endInput);
-        controls.add(primaryActionBtn);
+        controls.add(selectImmediateBtn);
+        controls.add(requestReservationBtn);
         controls.add(releaseBtn);
         controls.add(addSlotBtn);
 
@@ -128,7 +170,8 @@ public class DashboardPanel extends JPanel {
             }
         });
 
-        primaryActionBtn.addActionListener(e -> handlePrimarySlotAction());
+        selectImmediateBtn.addActionListener(e -> handleSelectSlotImmediate());
+        requestReservationBtn.addActionListener(e -> handleRequestReservation());
         releaseBtn.addActionListener(e -> handleReleaseSlot());
         addSlotBtn.addActionListener(e -> handleAddSlot());
 
@@ -216,7 +259,7 @@ public class DashboardPanel extends JPanel {
         return footer;
     }
 
-    private void handlePrimarySlotAction() {
+    private void handleSelectSlotImmediate() {
         ParkingService.UserAccount user = service.getCurrentUser();
         if (user == null) return;
         String slotNumber = slotInput.getText().trim();
@@ -225,7 +268,8 @@ public class DashboardPanel extends JPanel {
             return;
         }
 
-        if (user.getUserType() == UserType.STUDENT) {
+        UserType role = user.getUserType();
+        if (role == UserType.STUDENT) {
             String result = service.selectSlotForStudent(slotNumber);
             if ("OK".equals(result)) {
                 refreshAll();
@@ -233,7 +277,28 @@ public class DashboardPanel extends JPanel {
             } else {
                 JOptionPane.showMessageDialog(this, result, "Selection Blocked", JOptionPane.WARNING_MESSAGE);
             }
-        } else if (user.getUserType() == UserType.VISITOR || user.getUserType() == UserType.SCHOOL_PERSONNEL) {
+        } else if (role == UserType.SCHOOL_PERSONNEL) {
+            String result = service.selectSlotForPersonnel(slotNumber);
+            if ("OK".equals(result)) {
+                refreshAll();
+                JOptionPane.showMessageDialog(this, "Slot " + slotNumber.toUpperCase() + " selected for immediate use.");
+            } else {
+                JOptionPane.showMessageDialog(this, result, "Selection Blocked", JOptionPane.WARNING_MESSAGE);
+            }
+        }
+    }
+
+    private void handleRequestReservation() {
+        ParkingService.UserAccount user = service.getCurrentUser();
+        if (user == null) return;
+        String slotNumber = slotInput.getText().trim();
+        if (slotNumber.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Select a slot row or enter a Slot ID.");
+            return;
+        }
+
+        UserType role = user.getUserType();
+        if (role == UserType.VISITOR || role == UserType.SCHOOL_PERSONNEL) {
             String result = service.requestReservation(slotNumber, startInput.getText().trim(), endInput.getText().trim());
             if ("OK".equals(result)) {
                 refreshAll();
@@ -322,19 +387,32 @@ public class DashboardPanel extends JPanel {
 
     public void refreshAll() {
         ParkingService.UserAccount user = service.getCurrentUser();
+        UserType role = user != null ? user.getUserType() : null;
+        boolean isAdmin = role == UserType.PARKING_ADMINISTRATOR;
+        boolean isStudent = role == UserType.STUDENT;
+        boolean isPersonnel = role == UserType.SCHOOL_PERSONNEL;
+        boolean isVisitor = role == UserType.VISITOR;
+
         if (user != null) {
             userBannerLabel.setText(user.getUserType().getLabel() + ": " + user.getName() + " (" + user.getUserId() + ")");
 
-            UserType role = user.getUserType();
-            boolean isAdmin = role == UserType.PARKING_ADMINISTRATOR;
-            boolean isStudent = role == UserType.STUDENT;
+            selectImmediateBtn.setVisible(isStudent || isPersonnel);
+            requestReservationBtn.setVisible(isPersonnel || isVisitor);
 
-            primaryActionBtn.setVisible(!isAdmin);
-            primaryActionBtn.setText(isStudent ? "Select Slot (Immediate)" : "Request Reservation");
+            boolean canReserve = isPersonnel || isVisitor;
+            startLabel.setVisible(canReserve);
+            startInput.setVisible(canReserve);
+            endLabel.setVisible(canReserve);
+            endInput.setVisible(canReserve);
 
-            startInput.setVisible(!isStudent && !isAdmin);
-            endInput.setVisible(!isStudent && !isAdmin);
+            if (startInput.getText().trim().isEmpty()) {
+                startInput.setText(defaultReservationStart());
+            }
+            if (endInput.getText().trim().isEmpty()) {
+                endInput.setText(defaultReservationEnd());
+            }
 
+            releaseBtn.setVisible(!isVisitor);
             addSlotBtn.setVisible(isAdmin);
             adminResActions.setVisible(isAdmin);
             adminVehicleActions.setVisible(isAdmin);
@@ -345,6 +423,8 @@ public class DashboardPanel extends JPanel {
                     : "Active / Assigned Slot: None");
         }
 
+        rebuildTabsForRole(role);
+
         slotModel.setRowCount(0);
         for (ParkingSlot s : service.getAllSlots()) {
             slotModel.addRow(new Object[]{
@@ -352,46 +432,54 @@ public class DashboardPanel extends JPanel {
                     s.getSlotType(),
                     s.getZoneType(),
                     s.checkAvailability() ? "Available" : "Occupied / Reserved",
-                    s.getAssignedHolderLabel()
+                    service.getSlotHolderDisplay(s)
             });
         }
 
         reservationModel.setRowCount(0);
-        for (Reservation r : service.getReservations()) {
-            reservationModel.addRow(new Object[]{
-                    r.getReservationId(),
-                    r.getRequesterName(),
-                    r.getRequesterRole().getLabel(),
-                    r.getSlotNumber(),
-                    r.getStartDateTime(),
-                    r.getEndDateTime(),
-                    r.getStatus()
-            });
+        if (user != null && !isStudent) {
+            for (Reservation r : service.getReservations()) {
+                if (isAdmin || user.getUserId().equals(r.getRequesterId())) {
+                    reservationModel.addRow(new Object[]{
+                            r.getReservationId(),
+                            r.getRequesterName(),
+                            r.getRequesterRole().getLabel(),
+                            r.getSlotNumber(),
+                            r.getStartDateTime(),
+                            r.getEndDateTime(),
+                            r.getStatus()
+                    });
+                }
+            }
         }
 
         vehicleModel.setRowCount(0);
-        for (Vehicle v : service.getVehicles()) {
-            vehicleModel.addRow(new Object[]{
-                    v.getVehicleId(),
-                    v.getPlateNumber(),
-                    v.getVehicleType(),
-                    v.getStickerCategory(),
-                    v.getOwnerId(),
-                    v.getExpirationDate()
-            });
+        if (isAdmin) {
+            for (Vehicle v : service.getVehicles()) {
+                vehicleModel.addRow(new Object[]{
+                        v.getVehicleId(),
+                        v.getPlateNumber(),
+                        v.getVehicleType(),
+                        v.getStickerCategory(),
+                        v.getOwnerId(),
+                        v.getExpirationDate()
+                });
+            }
         }
 
         recordModel.setRowCount(0);
-        for (ParkingRecord rec : service.getRecords()) {
-            recordModel.addRow(new Object[]{
-                    rec.getRecordId(),
-                    rec.getVehicleId(),
-                    rec.getSlotNumber(),
-                    rec.getVisitorId() != null ? rec.getVisitorId() : "-",
-                    rec.getFormattedEntryTime(),
-                    rec.getFormattedExitTime(),
-                    rec.isSurrenderedVisitorId() ? "Yes" : "No"
-            });
+        if (isAdmin) {
+            for (ParkingRecord rec : service.getRecords()) {
+                recordModel.addRow(new Object[]{
+                        rec.getRecordId(),
+                        rec.getVehicleId(),
+                        rec.getSlotNumber(),
+                        rec.getVisitorId() != null ? rec.getVisitorId() : "-",
+                        rec.getFormattedEntryTime(),
+                        rec.getFormattedExitTime(), 
+                        rec.isSurrenderedVisitorId() ? "Yes" : "No"
+                });
+            }
         }
     }
 }

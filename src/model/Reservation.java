@@ -8,7 +8,7 @@ public class Reservation {
     private final String slotNumber;
     private String startDateTime;
     private String endDateTime;
-    private String status; // Pending, Approved, Rejected
+    private String status;
 
     public Reservation(String reservationId, String requesterId, String requesterName,
                        UserType requesterRole, String slotNumber,
@@ -69,5 +69,13 @@ public class Reservation {
 
     public void reject() {
         this.status = "Rejected";
+    }
+
+    public void complete() {
+        this.status = "Completed";
+    }
+
+    public void cancel() {
+        this.status = "Cancelled";
     }
 }
