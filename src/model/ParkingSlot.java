@@ -8,12 +8,23 @@ public class ParkingSlot {
     private String assignedStudentId;
     private String assignedPersonnelId;
     private String assignedVisitorId;
+    private String assignedReservationId;
 
     public ParkingSlot(String slotNumber, String slotType, String zoneType, boolean isAvailable) {
         this.slotNumber = slotNumber;
         this.slotType = slotType;
         this.zoneType = zoneType;
         this.isAvailable = isAvailable;
+    }
+
+    /** Returns a detached view so callers cannot alter a stored slot directly. */
+    public ParkingSlot copy() {
+        ParkingSlot copy = new ParkingSlot(slotNumber, slotType, zoneType, isAvailable);
+        copy.setAssignedStudentId(assignedStudentId);
+        copy.setAssignedPersonnelId(assignedPersonnelId);
+        copy.setAssignedVisitorId(assignedVisitorId);
+        copy.setAssignedReservationId(assignedReservationId);
+        return copy;
     }
 
     public String getSlotNumber() {
@@ -68,10 +79,17 @@ public class ParkingSlot {
         this.assignedVisitorId = assignedVisitorId;
     }
 
+    public String getAssignedReservationId() { return assignedReservationId; }
+
+    public void setAssignedReservationId(String assignedReservationId) {
+        this.assignedReservationId = assignedReservationId;
+    }
+
     public void clearAssignments() {
         this.assignedStudentId = null;
         this.assignedPersonnelId = null;
         this.assignedVisitorId = null;
+        this.assignedReservationId = null;
     }
 
     public String getAssignedHolderLabel() {

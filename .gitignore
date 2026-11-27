@@ -1,0 +1,7 @@
+# Compiled Java files
+*.class
+build/
+
+# Temporary error logs
+compile_errors.txt
+errors.txt

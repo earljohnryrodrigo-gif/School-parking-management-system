@@ -31,18 +31,27 @@ public class Main {
 
             DashboardPanel[] dashboardRef = new DashboardPanel[1];
 
-            SignupPanel signupPanel = new SignupPanel(
-                    service,
+            SignupPanel studentSignupPanel = new SignupPanel(
+                    service, model.UserType.STUDENT,
                     () -> cardLayout.show(rootPanel, "LOGIN"),
+                    () -> cardLayout.show(rootPanel, "VISITOR_SIGNUP"),
                     () -> {
                         dashboardRef[0].refreshAll();
                         cardLayout.show(rootPanel, "DASHBOARD");
-                    }
-            );
+                    });
+            SignupPanel visitorSignupPanel = new SignupPanel(
+                    service, model.UserType.VISITOR,
+                    () -> cardLayout.show(rootPanel, "LOGIN"),
+                    () -> cardLayout.show(rootPanel, "SIGNUP"),
+                    () -> {
+                        dashboardRef[0].refreshAll();
+                        cardLayout.show(rootPanel, "DASHBOARD");
+                    });
 
             LoginPanel loginPanel = new LoginPanel(
                     service,
                     () -> cardLayout.show(rootPanel, "SIGNUP"),
+                    () -> cardLayout.show(rootPanel, "VISITOR_SIGNUP"),
                     () -> {
                         dashboardRef[0].refreshAll();
                         cardLayout.show(rootPanel, "DASHBOARD");
@@ -55,7 +64,8 @@ public class Main {
             );
             dashboardRef[0] = dashboardPanel;
 
-            rootPanel.add(signupPanel, "SIGNUP");
+            rootPanel.add(studentSignupPanel, "SIGNUP");
+            rootPanel.add(visitorSignupPanel, "VISITOR_SIGNUP");
             rootPanel.add(loginPanel, "LOGIN");
             rootPanel.add(dashboardPanel, "DASHBOARD");
 

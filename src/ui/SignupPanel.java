@@ -6,265 +6,262 @@ import service.ParkingService;
 import javax.swing.*;
 import java.awt.*;
 
+/** Public Student registration and the existing Visitor signup flow. */
 public class SignupPanel extends JPanel {
-
-    private static final UserType[] PUBLIC_ROLES = {UserType.STUDENT, UserType.VISITOR, UserType.SCHOOL_PERSONNEL};
-
     private final ParkingService service;
+    private final UserType signupType;
     private final Runnable onShowLogin;
+    private final Runnable onShowOtherSignup;
     private final Runnable onAuthSuccess;
 
-    private JComboBox<UserType> typeCombo;
-    private JTextField nameField;
-    private JPasswordField passField;
-    private JPasswordField confirmField;
+    private JTextField fullNameField;
+    private JTextField studentIdField;
+    private JTextField courseYearField;
+    private JTextField usernameField;
+    private JPasswordField passwordField;
+    private JPasswordField confirmPasswordField;
+    private JComboBox<String> vehicleTypeBox;
+    private JTextField plateField;
+    private JTextField visitorInfoField;
     private JLabel inlineError;
-    private JTextField profileField;
-    private JLabel profileLabel;
 
+    /** Backward-compatible constructor; the public form defaults to Student registration. */
     public SignupPanel(ParkingService service, Runnable onShowLogin, Runnable onAuthSuccess) {
+        this(service, UserType.STUDENT, onShowLogin, onShowLogin, onAuthSuccess);
+    }
+
+    public SignupPanel(ParkingService service, UserType signupType, Runnable onShowLogin,
+                       Runnable onShowOtherSignup, Runnable onAuthSuccess) {
+        if (signupType != UserType.STUDENT && signupType != UserType.VISITOR) {
+            throw new IllegalArgumentException("Public signup supports Students and Visitors only.");
+        }
         this.service = service;
+        this.signupType = signupType;
         this.onShowLogin = onShowLogin;
+        this.onShowOtherSignup = onShowOtherSignup;
         this.onAuthSuccess = onAuthSuccess;
 
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
         add(new BrandPanel(), BorderLayout.WEST);
 
-        JPanel right = new JPanel(new BorderLayout());
+        JPanel right = new JPanel(new BorderLayout(0, 12));
         right.setBackground(Theme.CARD_WHITE);
-        right.setBorder(BorderFactory.createEmptyBorder(28, 45, 28, 45));
+        right.setBorder(BorderFactory.createEmptyBorder(24, 40, 24, 40));
+        right.add(buildHeader(), BorderLayout.NORTH);
 
-        // Branding header
+        JPanel formCard = Theme.roundedPanel();
+        formCard.setLayout(new BoxLayout(formCard, BoxLayout.Y_AXIS));
+        formCard.setBorder(BorderFactory.createEmptyBorder(18, 22, 18, 22));
+        if (signupType == UserType.STUDENT) buildStudentForm(formCard);
+        else buildVisitorForm(formCard);
+
+        JScrollPane formScroll = new JScrollPane(formCard);
+        formScroll.setBorder(BorderFactory.createEmptyBorder());
+        formScroll.getViewport().setBackground(Theme.CARD_WHITE);
+        formScroll.getVerticalScrollBar().setUnitIncrement(18);
+        right.add(formScroll, BorderLayout.CENTER);
+        right.add(buildActions(), BorderLayout.SOUTH);
+        add(right, BorderLayout.CENTER);
+    }
+
+    private JPanel buildHeader() {
         JPanel header = new JPanel();
         header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
         header.setOpaque(false);
-        header.setBorder(BorderFactory.createEmptyBorder(0, 0, 24, 0));
-
-        JLabel brandLabel = new JLabel("Parking-ka-BOSS");
-        brandLabel.setFont(Theme.FONT_TITLE);
-        brandLabel.setForeground(Theme.PRIMARY_NAVY);
-        brandLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        JLabel taglineLabel = new JLabel("School Parking Management System");
-        taglineLabel.setFont(Theme.FONT_SUBTITLE);
-        taglineLabel.setForeground(Theme.TEXT_MUTED);
-        taglineLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        JLabel heading = new JLabel("Create Account");
+        JLabel brand = new JLabel("Parking-ka-BOSS");
+        brand.setFont(Theme.FONT_TITLE);
+        brand.setForeground(Theme.PRIMARY_NAVY);
+        brand.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel subtitle = new JLabel("School Parking Management System");
+        subtitle.setFont(Theme.FONT_SUBTITLE);
+        subtitle.setForeground(Theme.TEXT_MUTED);
+        subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel heading = new JLabel(signupType == UserType.STUDENT ? "Student Registration" : "Visitor Sign Up");
         heading.setFont(new Font("Segoe UI", Font.BOLD, 20));
         heading.setForeground(Theme.TEXT_DARK);
         heading.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        header.add(brandLabel);
-        header.add(Box.createVerticalStrut(4));
-        header.add(taglineLabel);
-        header.add(Box.createVerticalStrut(20));
+        header.add(brand);
+        header.add(Box.createVerticalStrut(3));
+        header.add(subtitle);
+        header.add(Box.createVerticalStrut(8));
         header.add(heading);
+        return header;
+    }
 
-        right.add(header, BorderLayout.NORTH);
+    private void buildStudentForm(JPanel card) {
+        JPanel studentSection = section("Student Information");
+        fullNameField = input();
+        studentIdField = input();
+        courseYearField = input();
+        addField(studentSection, "Full Name", fullNameField);
+        addField(studentSection, "Student ID", studentIdField);
+        addField(studentSection, "Course & Year", courseYearField);
+        card.add(studentSection);
+        card.add(Box.createVerticalStrut(12));
 
-        // Form card
-        JPanel formCard = Theme.roundedPanel();
-        formCard.setLayout(new BoxLayout(formCard, BoxLayout.Y_AXIS));
-        formCard.setAlignmentX(Component.LEFT_ALIGNMENT);
-        formCard.setMaximumSize(new Dimension(400, Integer.MAX_VALUE));
+        JPanel accountSection = section("Account Information");
+        usernameField = input();
+        passwordField = passwordInput();
+        confirmPasswordField = passwordInput();
+        addField(accountSection, "Username", usernameField);
+        addField(accountSection, "Password", passwordContainer(passwordField));
+        addField(accountSection, "Confirm Password", passwordContainer(confirmPasswordField));
+        card.add(accountSection);
+        card.add(Box.createVerticalStrut(12));
 
-        JLabel typeLabel = new JLabel("Account Type");
-        typeLabel.setFont(Theme.FONT_LABEL);
-        typeLabel.setForeground(Theme.TEXT_MUTED);
-        typeLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel vehicleSection = section("Vehicle Information");
+        vehicleTypeBox = new JComboBox<>(new String[]{"Motorcycle", "Car"});
+        vehicleTypeBox.setFont(Theme.FONT_LABEL);
+        plateField = input();
+        addField(vehicleSection, "Vehicle Type", vehicleTypeBox);
+        addField(vehicleSection, "Plate Number", plateField);
+        card.add(vehicleSection);
+        addErrorLabel(card);
+    }
 
-        typeCombo = new JComboBox<>(PUBLIC_ROLES);
-        typeCombo.setFont(Theme.FONT_LABEL);
-        typeCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-        typeCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
-        typeCombo.addActionListener(e -> updateProfilePrompt());
+    private void buildVisitorForm(JPanel card) {
+        JPanel visitorSection = section("Visitor Information");
+        usernameField = input();
+        visitorInfoField = input();
+        passwordField = passwordInput();
+        confirmPasswordField = passwordInput();
+        addField(visitorSection, "Name / Username", usernameField);
+        addField(visitorSection, "Visit purpose / contact information", visitorInfoField);
+        addField(visitorSection, "Password", passwordContainer(passwordField));
+        addField(visitorSection, "Confirm Password", passwordContainer(confirmPasswordField));
+        card.add(visitorSection);
+        addErrorLabel(card);
+    }
 
-        JLabel nameLabel = new JLabel("Name / Username");
-        nameLabel.setFont(Theme.FONT_LABEL);
-        nameLabel.setForeground(Theme.TEXT_MUTED);
-        nameLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private JPanel section(String title) {
+        JPanel section = Theme.roundedPanel();
+        section.setLayout(new GridLayout(0, 2, 12, 9));
+        section.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(Theme.BORDER_LIGHT), title));
+        return section;
+    }
 
-        nameField = new JTextField();
-        Theme.styleInput(nameField);
-        nameField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-        nameField.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private void addField(JPanel section, String label, JComponent input) {
+        JLabel fieldLabel = new JLabel(label);
+        fieldLabel.setFont(Theme.FONT_LABEL);
+        fieldLabel.setForeground(Theme.TEXT_MUTED);
+        section.add(fieldLabel);
+        section.add(input);
+    }
 
-        profileLabel = new JLabel("Student / visitor / personnel information");
-        profileLabel.setFont(Theme.FONT_LABEL);
-        profileLabel.setForeground(Theme.TEXT_MUTED);
-        profileLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        profileField = new JTextField();
-        Theme.styleInput(profileField);
-        profileField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-        profileField.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private JTextField input() {
+        JTextField field = new JTextField();
+        Theme.styleInput(field);
+        field.setPreferredSize(new Dimension(240, 38));
+        return field;
+    }
 
-        JLabel passLabel = new JLabel("Password");
-        passLabel.setFont(Theme.FONT_LABEL);
-        passLabel.setForeground(Theme.TEXT_MUTED);
-        passLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private JPasswordField passwordInput() {
+        JPasswordField field = new JPasswordField();
+        Theme.stylePassword(field);
+        field.setPreferredSize(new Dimension(240, 38));
+        return field;
+    }
 
-        JPanel passContainer = new JPanel(new BorderLayout(0, 0));
-        passContainer.setOpaque(false);
-        passContainer.setAlignmentX(Component.LEFT_ALIGNMENT);
-        passContainer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-
-        passField = new JPasswordField();
-        Theme.stylePassword(passField);
-        passField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-
-        JToggleButton showPassBtn = new JToggleButton("\uD83D\uDC41");
-        showPassBtn.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 16));
-        showPassBtn.setFocusPainted(false);
-        showPassBtn.setBorderPainted(false);
-        showPassBtn.setOpaque(false);
-        showPassBtn.setForeground(Theme.TEXT_MUTED);
-        showPassBtn.setMaximumSize(new Dimension(40, 44));
-        showPassBtn.setPreferredSize(new Dimension(40, 44));
-        showPassBtn.addActionListener(e -> {
-            boolean show = showPassBtn.isSelected();
-            passField.setEchoChar(show ? 0 : '\u25CF');
-            showPassBtn.setText(show ? "\uD83D\uDC41" : "\uD83D\uDC42");
+    private JPanel passwordContainer(JPasswordField field) {
+        JPanel container = new JPanel(new BorderLayout());
+        container.setOpaque(false);
+        container.setPreferredSize(new Dimension(240, 38));
+        JToggleButton visibility = new JToggleButton("\uD83D\uDC41");
+        visibility.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 15));
+        visibility.setFocusPainted(false);
+        visibility.setBorderPainted(false);
+        visibility.setOpaque(false);
+        visibility.setForeground(Theme.TEXT_MUTED);
+        visibility.setPreferredSize(new Dimension(36, 38));
+        visibility.addActionListener(e -> {
+            boolean show = visibility.isSelected();
+            field.setEchoChar(show ? 0 : '\u25CF');
+            visibility.setText(show ? "\uD83D\uDC41" : "\uD83D\uDC42");
         });
+        container.add(field, BorderLayout.CENTER);
+        container.add(visibility, BorderLayout.EAST);
+        return container;
+    }
 
-        passContainer.add(passField, BorderLayout.CENTER);
-        passContainer.add(showPassBtn, BorderLayout.EAST);
-
-        JLabel confirmLabel = new JLabel("Confirm Password");
-        confirmLabel.setFont(Theme.FONT_LABEL);
-        confirmLabel.setForeground(Theme.TEXT_MUTED);
-        confirmLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JPanel confirmContainer = new JPanel(new BorderLayout(0, 0));
-        confirmContainer.setOpaque(false);
-        confirmContainer.setAlignmentX(Component.LEFT_ALIGNMENT);
-        confirmContainer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-
-        confirmField = new JPasswordField();
-        Theme.stylePassword(confirmField);
-        confirmField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-
-        JToggleButton showConfirmBtn = new JToggleButton("\uD83D\uDC41");
-        showConfirmBtn.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 16));
-        showConfirmBtn.setFocusPainted(false);
-        showConfirmBtn.setBorderPainted(false);
-        showConfirmBtn.setOpaque(false);
-        showConfirmBtn.setForeground(Theme.TEXT_MUTED);
-        showConfirmBtn.setMaximumSize(new Dimension(40, 44));
-        showConfirmBtn.setPreferredSize(new Dimension(40, 44));
-        showConfirmBtn.addActionListener(e -> {
-            boolean show = showConfirmBtn.isSelected();
-            confirmField.setEchoChar(show ? 0 : '\u25CF');
-            showConfirmBtn.setText(show ? "\uD83D\uDC41" : "\uD83D\uDC42");
-        });
-
-        confirmContainer.add(confirmField, BorderLayout.CENTER);
-        confirmContainer.add(showConfirmBtn, BorderLayout.EAST);
-
-        // Inline error label
+    private void addErrorLabel(JPanel card) {
         inlineError = new JLabel(" ");
         inlineError.setFont(Theme.FONT_LABEL);
         inlineError.setForeground(Theme.STATUS_RED);
-        inlineError.setAlignmentX(Component.LEFT_ALIGNMENT);
+        inlineError.setBorder(BorderFactory.createEmptyBorder(8, 2, 2, 2));
         inlineError.setVisible(false);
-
-        formCard.add(typeLabel);
-        formCard.add(Box.createVerticalStrut(6));
-        formCard.add(typeCombo);
-        formCard.add(Box.createVerticalStrut(16));
-        formCard.add(nameLabel);
-        formCard.add(Box.createVerticalStrut(6));
-        formCard.add(nameField);
-        formCard.add(Box.createVerticalStrut(12));
-        formCard.add(profileLabel);
-        formCard.add(Box.createVerticalStrut(6));
-        formCard.add(profileField);
-        formCard.add(Box.createVerticalStrut(16));
-        formCard.add(passLabel);
-        formCard.add(Box.createVerticalStrut(6));
-        formCard.add(passContainer);
-        formCard.add(Box.createVerticalStrut(16));
-        formCard.add(confirmLabel);
-        formCard.add(Box.createVerticalStrut(6));
-        formCard.add(confirmContainer);
-        formCard.add(Box.createVerticalStrut(6));
-        formCard.add(inlineError);
-        formCard.add(Box.createVerticalStrut(20));
-
-        right.add(formCard, BorderLayout.CENTER);
-
-        // Action area
-        JPanel actionArea = new JPanel();
-        actionArea.setLayout(new BoxLayout(actionArea, BoxLayout.Y_AXIS));
-        actionArea.setOpaque(false);
-        actionArea.setBorder(BorderFactory.createEmptyBorder(12, 0, 0, 0));
-        actionArea.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JButton signUpBtn = Theme.primaryButton("Sign Up");
-        signUpBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
-        signUpBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-
-        JButton hasAccountBtn = Theme.secondaryButton("I already have an account");
-        hasAccountBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
-        hasAccountBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-
-        Theme.addHoverEffect(signUpBtn);
-        Theme.addHoverEffect(hasAccountBtn);
-
-        signUpBtn.addActionListener(e -> attemptSignup());
-
-        hasAccountBtn.addActionListener(e -> onShowLogin.run());
-
-        actionArea.add(signUpBtn);
-        actionArea.add(Box.createVerticalStrut(12));
-        actionArea.add(hasAccountBtn);
-
-        right.add(actionArea, BorderLayout.SOUTH);
-
-        add(right, BorderLayout.CENTER);
-        updateProfilePrompt();
+        card.add(Box.createVerticalStrut(6));
+        card.add(inlineError);
     }
 
-    private void updateProfilePrompt() {
-        UserType type = (UserType) typeCombo.getSelectedItem();
-        if (profileLabel == null) return;
-        if (type == UserType.STUDENT) profileLabel.setText("Student number / program");
-        else if (type == UserType.SCHOOL_PERSONNEL) profileLabel.setText("Employee number / department");
-        else profileLabel.setText("Visit purpose / contact information");
+    private JPanel buildActions() {
+        JPanel actions = new JPanel(new GridLayout(0, 1, 0, 7));
+        actions.setOpaque(false);
+        JButton submit = Theme.primaryButton(signupType == UserType.STUDENT
+                ? "Submit Student Registration" : "Create Visitor Account");
+        JButton login = Theme.secondaryButton("I already have an account");
+        JButton otherSignup = Theme.secondaryButton(signupType == UserType.STUDENT
+                ? "Visitor Sign Up" : "Student Sign Up");
+        Theme.addHoverEffect(submit);
+        Theme.addHoverEffect(login);
+        Theme.addHoverEffect(otherSignup);
+        submit.addActionListener(e -> submitSignup());
+        login.addActionListener(e -> onShowLogin.run());
+        otherSignup.addActionListener(e -> onShowOtherSignup.run());
+        actions.add(submit);
+        actions.add(login);
+        actions.add(otherSignup);
+        return actions;
     }
 
-    private void attemptSignup() {
+    private void submitSignup() {
         inlineError.setVisible(false);
-        UserType chosenType = (UserType) typeCombo.getSelectedItem();
-        String name = nameField.getText().trim();
-        String pass = new String(passField.getPassword());
-        String confirm = new String(confirmField.getPassword());
-        String profile = profileField.getText().trim();
-
-        if (name.isEmpty() || pass.isEmpty() || profile.isEmpty()) {
+        String username = usernameField.getText().trim();
+        String password = new String(passwordField.getPassword());
+        String confirmation = new String(confirmPasswordField.getPassword());
+        if (username.isBlank() || password.isBlank() || confirmation.isBlank()) {
             showInlineError("Please complete all required fields.");
-            nameField.requestFocus();
             return;
         }
-        if (!pass.equals(confirm)) {
+        if (!password.equals(confirmation)) {
             showInlineError("Passwords do not match.");
-            passField.requestFocus();
-            return;
-        }
-        boolean registered = service.registerAccount(name, pass, chosenType, profile);
-        if (!registered) {
-            showInlineError("That account name already exists.");
+            confirmPasswordField.requestFocus();
             return;
         }
 
-        service.login(name, pass, chosenType);
-        nameField.setText("");
-        passField.setText("");
-        confirmField.setText("");
-        profileField.setText("");
+        if (signupType == UserType.STUDENT) {
+            if (fullNameField.getText().isBlank() || studentIdField.getText().isBlank()
+                    || courseYearField.getText().isBlank() || plateField.getText().isBlank()) {
+                showInlineError("Please complete all required Student and vehicle fields.");
+                return;
+            }
+            String result = service.submitStudentRegistration(fullNameField.getText(), studentIdField.getText(),
+                    courseYearField.getText(), username, password,
+                    String.valueOf(vehicleTypeBox.getSelectedItem()), plateField.getText());
+            if (!"OK".equals(result)) {
+                showInlineError(result);
+                return;
+            }
+            JOptionPane.showMessageDialog(this,
+                    "Registration submitted! Please wait for Parking Administrator approval before logging in.",
+                    "Registration Submitted", JOptionPane.INFORMATION_MESSAGE);
+            onShowLogin.run();
+            return;
+        }
 
-        Theme.showToast(this, "Account created successfully! Welcome, " + name + ".");
+        if (visitorInfoField.getText().isBlank()) {
+            showInlineError("Please complete all required fields.");
+            return;
+        }
+        boolean created = service.registerAccount(username, password, UserType.VISITOR,
+                visitorInfoField.getText().trim());
+        if (!created) {
+            showInlineError("That username already exists.");
+            return;
+        }
+        service.login(username, password, UserType.VISITOR);
+        Theme.showToast(this, "Account created successfully! Welcome, " + username + ".");
         onAuthSuccess.run();
     }
 

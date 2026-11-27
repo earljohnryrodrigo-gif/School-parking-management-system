@@ -8,17 +8,22 @@ import java.awt.*;
 public class LoginPanel extends JPanel {
 
     private final ParkingService service;
-    private final Runnable onShowSignup;
     private final Runnable onAuthSuccess;
+    private final Runnable onShowVisitorSignup;
 
     private JTextField nameField;
     private JPasswordField passField;
     private JLabel inlineError;
 
     public LoginPanel(ParkingService service, Runnable onShowSignup, Runnable onAuthSuccess) {
+        this(service, onShowSignup, onShowSignup, onAuthSuccess);
+    }
+
+    public LoginPanel(ParkingService service, Runnable onShowSignup, Runnable onShowVisitorSignup,
+                      Runnable onAuthSuccess) {
         this.service = service;
-        this.onShowSignup = onShowSignup;
         this.onAuthSuccess = onAuthSuccess;
+        this.onShowVisitorSignup = onShowVisitorSignup;
 
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
@@ -135,20 +140,28 @@ public class LoginPanel extends JPanel {
         loginBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         loginBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
 
-        JButton newAccountBtn = Theme.secondaryButton("I am New! Create Account");
+        JButton newAccountBtn = Theme.secondaryButton("Create Student Account");
         newAccountBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         newAccountBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
 
+        JButton visitorSignupBtn = Theme.secondaryButton("Visitor Sign Up");
+        visitorSignupBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        visitorSignupBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+
         Theme.addHoverEffect(loginBtn);
         Theme.addHoverEffect(newAccountBtn);
+        Theme.addHoverEffect(visitorSignupBtn);
 
         loginBtn.addActionListener(e -> attemptLogin());
 
         newAccountBtn.addActionListener(e -> onShowSignup.run());
+        visitorSignupBtn.addActionListener(e -> onShowVisitorSignup.run());
 
         actionArea.add(loginBtn);
         actionArea.add(Box.createVerticalStrut(12));
         actionArea.add(newAccountBtn);
+        actionArea.add(Box.createVerticalStrut(8));
+        actionArea.add(visitorSignupBtn);
 
         right.add(actionArea, BorderLayout.SOUTH);
 
@@ -182,12 +195,21 @@ public class LoginPanel extends JPanel {
             onAuthSuccess.run();
 
         } else {
-            showInlineError("Invalid credentials.\n(Demo accounts: admin, student1, staff1, visitor1 | pass: 1234)");
+            String registrationMessage = service.getLastLoginMessage();
+            if (registrationMessage.isBlank()) {
+                showInlineError("Invalid credentials.\n(Demo accounts: admin, student1, staff1, visitor1 | pass: 1234)");
+            } else {
+                JOptionPane.showMessageDialog(this, registrationMessage,
+                        "Student Registration", JOptionPane.WARNING_MESSAGE);
+                showInlineError(registrationMessage);
+            }
         }
     }
 
     private void showInlineError(String message) {
-        inlineError.setText("<html>" + message.replace("\n", "<br>") + "</html>");
+        String safeMessage = message.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace("\n", "<br>");
+        inlineError.setText("<html>" + safeMessage + "</html>");
         inlineError.setVisible(true);
     }
 }

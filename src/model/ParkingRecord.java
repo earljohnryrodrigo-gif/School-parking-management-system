@@ -24,6 +24,15 @@ public class ParkingRecord {
         this.surrenderedVisitorId = false;
     }
 
+    /** Returns a detached view so callers cannot change stored entry and exit times. */
+    public ParkingRecord copy() {
+        ParkingRecord copy = new ParkingRecord(recordId, vehicleId, slotNumber, visitorId);
+        copy.entryTime = entryTime;
+        copy.exitTime = exitTime;
+        copy.surrenderedVisitorId = surrenderedVisitorId;
+        return copy;
+    }
+
     public String getRecordId() {
         return recordId;
     }
