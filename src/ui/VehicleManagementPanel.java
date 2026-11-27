@@ -24,11 +24,8 @@ import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
-import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.io.File;
@@ -76,6 +73,7 @@ public final class VehicleManagementPanel extends JPanel {
         JPanel toolbar = new JPanel();
         toolbar.setLayout(new BoxLayout(toolbar, BoxLayout.Y_AXIS));
         toolbar.setOpaque(false);
+        toolbar.add(Theme.sectionHeader("🚘 Vehicle Management", "Registrations, renewals, payment review, and vehicle status"));
         buildAdminActions();
         buildOwnerActions();
         toolbar.add(adminActions);
@@ -444,7 +442,8 @@ public final class VehicleManagementPanel extends JPanel {
         Vehicle vehicle = selectedVehicle();
         VehicleApplication application = vehicle == null ? null : service.getLatestVehicleApplication(vehicle.getVehicleId());
         boolean initialStudentRegistration = application != null
-                && "STUDENT_INITIAL_REGISTRATION".equals(application.getApplicationType());
+                && ("STUDENT_INITIAL_REGISTRATION".equals(application.getApplicationType())
+                || "PERSONNEL_INITIAL_REGISTRATION".equals(application.getApplicationType()));
         boolean pendingApplication = application != null && "PENDING".equalsIgnoreCase(application.getStatus());
         boolean pendingPayment = application != null && "PENDING_VERIFICATION".equalsIgnoreCase(application.getPaymentStatus());
         approveButton.setEnabled(pendingApplication && !initialStudentRegistration

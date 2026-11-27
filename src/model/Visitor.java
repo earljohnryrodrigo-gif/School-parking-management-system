@@ -1,15 +1,17 @@
 package model;
 
+import security.PasswordHasher;
+
 public class Visitor {
     private final String visitorId;
     private final String name;
-    private final String password;
+    private final String passwordHash;
     private String requestedSlotNumber;
 
     public Visitor(String visitorId, String name, String password) {
         this.visitorId = visitorId;
         this.name = name;
-        this.password = password;
+        this.passwordHash = PasswordHasher.hash(password);
         this.requestedSlotNumber = null;
     }
 
@@ -22,7 +24,7 @@ public class Visitor {
     }
 
     public String getPassword() {
-        return password;
+        return passwordHash;
     }
 
     public String getRequestedSlotNumber() {

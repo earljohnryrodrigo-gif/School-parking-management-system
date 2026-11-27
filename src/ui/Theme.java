@@ -56,6 +56,15 @@ public final class Theme {
         UIManager.put("OptionPane.messageForeground", TEXT_DARK);
         UIManager.put("OptionPane.messageFont", FONT_LABEL);
         UIManager.put("Button.font", FONT_BUTTON);
+        UIManager.put("Button.background", CARD_WHITE);
+        UIManager.put("Button.foreground", TEXT_DARK);
+        UIManager.put("Label.font", FONT_LABEL);
+        UIManager.put("Label.foreground", TEXT_DARK);
+        UIManager.put("TextField.font", FONT_LABEL);
+        UIManager.put("PasswordField.font", FONT_LABEL);
+        UIManager.put("ComboBox.font", FONT_LABEL);
+        UIManager.put("CheckBox.font", FONT_LABEL);
+        UIManager.put("CheckBox.foreground", TEXT_DARK);
         UIManager.put("Table.font", FONT_TABLE_CELL);
         UIManager.put("TableHeader.font", FONT_TABLE_HEADER);
         UIManager.put("TabbedPane.font", FONT_LABEL_BOLD);
@@ -183,12 +192,22 @@ public final class Theme {
         card.setLayout(new BorderLayout(14, 0));
         JPanel accentBar = new JPanel(); accentBar.setBackground(accent); accentBar.setPreferredSize(new Dimension(4, 0));
         JPanel content = new JPanel(new BorderLayout(0, 5)); content.setOpaque(false);
-        JLabel label = new JLabel(title); label.setFont(FONT_LABEL); label.setForeground(TEXT_MUTED);
+        JLabel label = new JLabel(statIcon(title) + "  " + title); label.setFont(FONT_LABEL); label.setForeground(TEXT_MUTED);
         JLabel number = new JLabel(value); number.setFont(new Font("Segoe UI", Font.BOLD, 25)); number.setForeground(TEXT_DARK);
         content.add(label, BorderLayout.NORTH); content.add(number, BorderLayout.CENTER);
         card.add(accentBar, BorderLayout.WEST); card.add(content, BorderLayout.CENTER);
         card.setPreferredSize(new Dimension(180, 82));
         return card;
+    }
+
+    private static String statIcon(String title) {
+        String value = title == null ? "" : title.toLowerCase(java.util.Locale.ROOT);
+        if (value.contains("available")) return "✅";
+        if (value.contains("occupied")) return "🚗";
+        if (value.contains("reserved") || value.contains("request")) return "📅";
+        if (value.contains("pending")) return "⏳";
+        if (value.contains("approved")) return "✓";
+        return "🅿";
     }
 
     public static JPanel sectionHeader(String title, String subtitle) {

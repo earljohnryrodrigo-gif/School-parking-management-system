@@ -9,7 +9,6 @@ public class LoginPanel extends JPanel {
 
     private final ParkingService service;
     private final Runnable onAuthSuccess;
-    private final Runnable onShowVisitorSignup;
 
     private JTextField nameField;
     private JPasswordField passField;
@@ -23,7 +22,6 @@ public class LoginPanel extends JPanel {
                       Runnable onAuthSuccess) {
         this.service = service;
         this.onAuthSuccess = onAuthSuccess;
-        this.onShowVisitorSignup = onShowVisitorSignup;
 
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
@@ -140,28 +138,20 @@ public class LoginPanel extends JPanel {
         loginBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         loginBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
 
-        JButton newAccountBtn = Theme.secondaryButton("Create Student Account");
+        JButton newAccountBtn = Theme.secondaryButton("Sign Up");
         newAccountBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         newAccountBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
 
-        JButton visitorSignupBtn = Theme.secondaryButton("Visitor Sign Up");
-        visitorSignupBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
-        visitorSignupBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-
         Theme.addHoverEffect(loginBtn);
         Theme.addHoverEffect(newAccountBtn);
-        Theme.addHoverEffect(visitorSignupBtn);
 
         loginBtn.addActionListener(e -> attemptLogin());
 
         newAccountBtn.addActionListener(e -> onShowSignup.run());
-        visitorSignupBtn.addActionListener(e -> onShowVisitorSignup.run());
 
         actionArea.add(loginBtn);
         actionArea.add(Box.createVerticalStrut(12));
         actionArea.add(newAccountBtn);
-        actionArea.add(Box.createVerticalStrut(8));
-        actionArea.add(visitorSignupBtn);
 
         right.add(actionArea, BorderLayout.SOUTH);
 

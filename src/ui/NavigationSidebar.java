@@ -13,13 +13,15 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 
 /** Collapsible dark navigation rail used by the dashboard. */
 public final class NavigationSidebar extends JPanel {
     private static final long serialVersionUID = 1L;
-    private static final int EXPANDED_WIDTH = 232;
+    private static final int EXPANDED_WIDTH = 260;
     private static final int COLLAPSED_WIDTH = 68;
     private final JPanel itemsPanel = new JPanel();
     private final JPanel brandPanel = new JPanel(new BorderLayout(10, 0));
@@ -57,13 +59,24 @@ public final class NavigationSidebar extends JPanel {
 
         itemsPanel.setOpaque(false); itemsPanel.setLayout(new BoxLayout(itemsPanel, BoxLayout.Y_AXIS));
         itemsPanel.setBorder(new EmptyBorder(16, 0, 0, 0));
-        top.add(itemsPanel, BorderLayout.CENTER);
+        JScrollPane itemsScroll = new JScrollPane(itemsPanel,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        itemsScroll.setBorder(BorderFactory.createEmptyBorder());
+        itemsScroll.setOpaque(false);
+        itemsScroll.getViewport().setOpaque(false);
+        itemsScroll.getVerticalScrollBar().setUnitIncrement(18);
+        itemsScroll.getVerticalScrollBar().setPreferredSize(new Dimension(7, 0));
+        itemsScroll.getVerticalScrollBar().setBackground(Theme.PRIMARY_NAVY);
+        itemsScroll.getVerticalScrollBar().setForeground(new Color(71, 85, 105));
+        top.add(itemsScroll, BorderLayout.CENTER);
         add(top, BorderLayout.CENTER);
 
         logoutButton = navButton("OUT", "Logout", onLogout);
         logoutButton.setForeground(new Color(254, 202, 202));
-        JPanel bottom = new JPanel(new BorderLayout()); bottom.setOpaque(false);
-        bottom.setBorder(new EmptyBorder(12, 0, 0, 0));
+        JPanel bottom = new JPanel(new BorderLayout());
+        bottom.setOpaque(false);
+        bottom.setBorder(new EmptyBorder(8, 0, 0, 0));
         bottom.add(logoutButton, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
     }
@@ -90,9 +103,9 @@ public final class NavigationSidebar extends JPanel {
 
     private JButton navButton(String icon, String label, Runnable action) {
         JButton button = new JButton(); button.setHorizontalAlignment(JButton.LEFT);
-        button.setFont(new Font("Segoe UI", Font.PLAIN, 13)); button.setFocusPainted(false);
-        button.setBorder(new EmptyBorder(10, 12, 10, 10)); button.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
-        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 42)); button.setAlignmentX(LEFT_ALIGNMENT);
+        button.setFont(new Font("Segoe UI", Font.PLAIN, 12)); button.setFocusPainted(false);
+        button.setBorder(new EmptyBorder(9, 8, 9, 8)); button.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40)); button.setAlignmentX(LEFT_ALIGNMENT);
         button.addActionListener(e -> action.run());
         button.putClientProperty("nav.icon", icon); button.putClientProperty("nav.label", label);
         return button;
@@ -104,18 +117,21 @@ public final class NavigationSidebar extends JPanel {
             JButton button = item.button;
             if (collapsed) {
                 button.setText(item.data.icon);
+                button.setHorizontalAlignment(JButton.CENTER);
                 button.setToolTipText(item.badgeCount > 0
                         ? item.data.label + " (" + item.badgeCount + " pending)" : item.data.label);
             } else {
+                button.setHorizontalAlignment(JButton.LEFT);
                 String badge = item.badgeCount > 0
                         ? " <span style='background-color:#DC2626;color:white'>&nbsp;" + item.badgeCount + "&nbsp;</span>" : "";
-                button.setText("<html>  " + item.data.icon + "&nbsp;&nbsp;&nbsp;" + item.data.label + badge + "</html>");
+                button.setText("<html><nobr><table cellpadding='0' cellspacing='0'><tr><td width='26' align='center'>"
+                        + item.data.icon + "</td><td>" + item.data.label + badge + "</td></tr></table></nobr></html>");
                 button.setToolTipText(null);
             }
             button.setBackground(active ? Theme.PRIMARY_BLUE : Theme.PRIMARY_NAVY);
             button.setForeground(active ? Color.WHITE : new Color(203, 213, 225));
             button.setOpaque(true); button.setContentAreaFilled(true); button.setBorderPainted(false);
-            button.setFont(active ? Theme.FONT_LABEL_BOLD : Theme.FONT_LABEL);
+            button.setFont(new Font("Segoe UI", active ? Font.BOLD : Font.PLAIN, 12));
         }
         logoutButton.setText(collapsed ? "OUT" : "  OUT     Logout");
         logoutButton.setToolTipText(collapsed ? "Logout" : null);

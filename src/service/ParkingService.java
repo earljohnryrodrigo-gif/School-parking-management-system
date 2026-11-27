@@ -3,6 +3,7 @@ package service;
 import model.ParkingRecord;
 import model.ParkingSlot;
 import model.Reservation;
+import model.CampusMapLayout;
 import model.SchoolPersonnel;
 import model.Student;
 import model.UserType;
@@ -10,6 +11,7 @@ import model.Vehicle;
 import model.VehicleApplication;
 import model.VehicleReminder;
 import model.Visitor;
+import security.PasswordHasher;
 
 import javax.imageio.ImageIO;
 import java.io.ByteArrayInputStream;
@@ -35,12 +37,15 @@ public class ParkingService {
     public static class UserAccount {
         private final String userId;
         private final String name;
-        private final String password;
+        private final String passwordHash;
         private final UserType userType;
         private final String profileInfo;
         private final String fullName;
         private final String studentId;
         private final String courseYear;
+        private final String personnelId;
+        private final String department;
+        private final LocalDateTime registeredAt;
         private String registrationStatus = "APPROVED";
         private String registrationRejectionReason = "";
 
@@ -49,19 +54,27 @@ public class ParkingService {
         }
 
         public UserAccount(String userId, String name, String password, UserType userType, String profileInfo) {
-            this(userId, name, password, userType, profileInfo, name, "", "");
+            this(userId, name, password, userType, profileInfo, name, "", "", "", "");
         }
 
         public UserAccount(String userId, String name, String password, UserType userType, String profileInfo,
                            String fullName, String studentId, String courseYear) {
+            this(userId, name, password, userType, profileInfo, fullName, studentId, courseYear, "", "");
+        }
+
+        public UserAccount(String userId, String name, String password, UserType userType, String profileInfo,
+                           String fullName, String studentId, String courseYear, String personnelId, String department) {
             this.userId = userId;
             this.name = name;
-            this.password = password;
+            this.passwordHash = PasswordHasher.hash(password);
             this.userType = userType;
             this.profileInfo = profileInfo == null ? "" : profileInfo;
             this.fullName = fullName == null ? name : fullName;
             this.studentId = studentId == null ? "" : studentId;
             this.courseYear = courseYear == null ? "" : courseYear;
+            this.personnelId = personnelId == null ? "" : personnelId;
+            this.department = department == null ? "" : department;
+            this.registeredAt = LocalDateTime.now();
         }
 
         public String getUserId() {
@@ -73,8 +86,10 @@ public class ParkingService {
         }
 
         public String getPassword() {
-            return password;
+            return passwordHash;
         }
+
+        public boolean verifyPassword(String candidate) { return PasswordHasher.matches(candidate, passwordHash); }
 
         public UserType getUserType() {
             return userType;
@@ -87,6 +102,9 @@ public class ParkingService {
         public String getStudentId() { return studentId; }
 
         public String getCourseYear() { return courseYear; }
+        public String getPersonnelId() { return personnelId; }
+        public String getDepartment() { return department; }
+        public LocalDateTime getRegisteredAt() { return registeredAt; }
 
         public String getRegistrationStatus() { return registrationStatus; }
 
@@ -112,6 +130,7 @@ public class ParkingService {
     private final List<VehicleReminder> vehicleReminders = new ArrayList<>();
     private final List<Reservation> reservations = new ArrayList<>();
     private final List<ParkingRecord> records = new ArrayList<>();
+    private CampusMapLayout campusMapLayout = new CampusMapLayout();
 
     private UserAccount currentUser;
     private int userCounter = 100;
@@ -201,10 +220,9 @@ public class ParkingService {
             return false;
         }
         if (!seedingInitialData) {
-            // Public Student registration must include the linked vehicle and await approval.
-            // Visitor signup remains the only public use of this generic method.
-            boolean publicRole = userType == UserType.VISITOR;
-            boolean publicSignup = currentUser == null && publicRole;
+            // Public registrations must use the role-specific atomic flow so linked records
+            // (initial vehicle or Visitor reservation) cannot be omitted.
+            boolean publicSignup = false;
             boolean administratorCreation = isCurrentUser(UserType.PARKING_ADMINISTRATOR)
                     && userType != UserType.PARKING_ADMINISTRATOR;
             if (!publicSignup && !administratorCreation) return false;
@@ -252,15 +270,15 @@ public class ParkingService {
         currentUser = null;
         if (isBlank(name) || isBlank(password)) return null;
         UserAccount account = accounts.get(name.trim().toLowerCase(Locale.ROOT));
-        if (account == null || !account.getPassword().equals(password)
+        if (account == null || !account.verifyPassword(password)
                 || (expectedType != null && account.getUserType() != expectedType)) return null;
-        if (account.getUserType() == UserType.STUDENT) {
+        if (account.getUserType() == UserType.STUDENT || account.getUserType() == UserType.SCHOOL_PERSONNEL) {
             if ("PENDING".equalsIgnoreCase(account.getRegistrationStatus())) {
-                lastLoginMessage = "Your Student registration is awaiting Parking Administrator approval.";
+                lastLoginMessage = "Your " + account.getUserType().getLabel() + " registration is awaiting Parking Administrator approval.";
                 return null;
             }
             if ("REJECTED".equalsIgnoreCase(account.getRegistrationStatus())) {
-                lastLoginMessage = "Your Student registration was rejected. Administrator reason: "
+                lastLoginMessage = "Your " + account.getUserType().getLabel() + " registration was rejected. Administrator reason: "
                         + account.getRegistrationRejectionReason();
                 return null;
             }
@@ -320,15 +338,72 @@ public class ParkingService {
         return "OK";
     }
 
+    /** Public School Personnel registration; account, first vehicle and application remain pending together. */
+    public String submitPersonnelRegistration(String fullName, String personnelId, String department,
+                                              String username, String password, String vehicleType, String plateNumber) {
+        if (currentUser != null) return "Log out before submitting a public School Personnel registration.";
+        if (isBlank(fullName) || isBlank(personnelId) || isBlank(department) || isBlank(username)
+                || isBlank(password) || isBlank(vehicleType) || isBlank(plateNumber)) return "Complete all required fields.";
+        String key = username.trim().toLowerCase(Locale.ROOT);
+        if (accounts.containsKey(key)) return "That username already exists.";
+        String cleanId = personnelId.trim();
+        for (SchoolPersonnel existing : personnelMap.values())
+            if (existing.getPersonnelId().equalsIgnoreCase(cleanId)) return "That Personnel ID is already registered.";
+        String plate = plateNumber.trim().toUpperCase(Locale.ROOT);
+        for (Vehicle existing : vehicles) if (existing.getPlateNumber().equalsIgnoreCase(plate)) return "That plate number is already registered.";
+        String type = vehicleType.trim();
+        if (!type.equalsIgnoreCase("Motorcycle") && !type.equalsIgnoreCase("Car")) return "Choose Motorcycle or Car as the vehicle type.";
+        String accountId = "SP-" + (++userCounter);
+        String cleanName = fullName.trim();
+        String cleanDepartment = department.trim();
+        UserAccount account = new UserAccount(accountId, username.trim(), password, UserType.SCHOOL_PERSONNEL,
+                "Personnel ID: " + cleanId + " | Department: " + cleanDepartment, cleanName, "", "", cleanId, cleanDepartment);
+        account.setRegistrationStatus("PENDING");
+        accounts.put(key, account);
+        personnelMap.put(key, new SchoolPersonnel(cleanId, cleanName, password));
+        String vehicleId = "VEH-" + vehicleCounter++;
+        String normalizedType = type.equalsIgnoreCase("Motorcycle") ? "Motorcycle" : "Car";
+        vehicles.add(new Vehicle(vehicleId, plate, normalizedType, "School Personnel", accountId,
+                null, "PENDING", null, "", "NOT_REQUIRED"));
+        vehicleApplications.add(new VehicleApplication(nextVehicleApplicationId(), vehicleId, accountId,
+                "PERSONNEL_INITIAL_REGISTRATION", cleanName, cleanId, cleanDepartment, normalizedType, plate, 0));
+        return "OK";
+    }
+
+    /** Public Visitor signup and pending reservation are created as one validated operation. */
+    public String submitVisitorRegistration(String fullName, String username, String password, String vehicleType,
+                                            String plateNumber, String purpose, String requestedDateText) {
+        if (currentUser != null) return "Log out before creating a public Visitor account.";
+        if (isBlank(fullName) || isBlank(username) || isBlank(password) || isBlank(vehicleType)
+                || isBlank(plateNumber) || isBlank(purpose) || isBlank(requestedDateText)) return "Complete all required Visitor and reservation fields.";
+        String key = username.trim().toLowerCase(Locale.ROOT);
+        if (accounts.containsKey(key)) return "That username already exists.";
+        LocalDate date;
+        try { date = LocalDate.parse(requestedDateText.trim()); }
+        catch (java.time.DateTimeException ex) { return "Enter the reservation date as yyyy-MM-dd."; }
+        if (date.isBefore(LocalDate.now())) return "The reservation date must be today or a future date.";
+        String type = vehicleType.trim();
+        if (!List.of("Car", "Sedan", "SUV", "Van", "Motorcycle").contains(type)) return "Choose a supported vehicle type.";
+        String name = fullName.trim();
+        String accountId = "VIS-" + (++userCounter);
+        accounts.put(key, new UserAccount(accountId, username.trim(), password, UserType.VISITOR,
+                "Visitor", name, "", ""));
+        visitors.put(key, new Visitor(accountId, name, password));
+        reservations.add(new Reservation("RES-" + (reservationCounter++), accountId, name, UserType.VISITOR,
+                null, null, null, "Pending", null, plateNumber.trim().toUpperCase(Locale.ROOT), type,
+                purpose.trim(), date));
+        return "OK";
+    }
+
     /** Admin-only pending initial Student applications for the Registered Users review view. */
     public List<VehicleApplication> getPendingStudentRegistrations() {
         if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return Collections.emptyList();
         List<VehicleApplication> pending = new ArrayList<>();
         for (VehicleApplication application : vehicleApplications) {
             UserAccount account = findAccountById(application.getOwnerId());
-            if ("STUDENT_INITIAL_REGISTRATION".equals(application.getApplicationType())
+            if (isInitialRegistration(application)
                     && application.getStatus().equalsIgnoreCase("PENDING")
-                    && account != null && account.getUserType() == UserType.STUDENT
+                    && account != null && (account.getUserType() == UserType.STUDENT || account.getUserType() == UserType.SCHOOL_PERSONNEL)
                     && account.getRegistrationStatus().equalsIgnoreCase("PENDING")) {
                 pending.add(application.copy());
             }
@@ -336,12 +411,22 @@ public class ParkingService {
         return Collections.unmodifiableList(pending);
     }
 
-    public String approveStudentRegistration(String username) {
-        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return "Only Parking Administrators can approve Student registrations.";
+    public VehicleApplication getInitialRegistrationApplication(String username) {
+        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return null;
         UserAccount account = findAccount(username);
-        if (account == null || account.getUserType() != UserType.STUDENT) return "Student account not found.";
-        if (!"PENDING".equalsIgnoreCase(account.getRegistrationStatus())) return "Student registration is already " + account.getRegistrationStatus() + ".";
-        VehicleApplication application = findInitialStudentApplication(account.getUserId());
+        if (account == null) return null;
+        VehicleApplication application = findInitialAccountApplication(account.getUserId());
+        return application == null ? null : application.copy();
+    }
+
+    public String approveStudentRegistration(String username) { return approveInitialAccountRegistration(username); }
+
+    public String approveInitialAccountRegistration(String username) {
+        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return "Only Parking Administrators can approve registrations.";
+        UserAccount account = findAccount(username);
+        if (account == null || (account.getUserType() != UserType.STUDENT && account.getUserType() != UserType.SCHOOL_PERSONNEL)) return "Registration account not found.";
+        if (!"PENDING".equalsIgnoreCase(account.getRegistrationStatus())) return "Registration is already " + account.getRegistrationStatus() + ".";
+        VehicleApplication application = findInitialAccountApplication(account.getUserId());
         if (application == null || !"PENDING".equalsIgnoreCase(application.getStatus())) return "Pending initial vehicle application not found.";
         Vehicle vehicle = findStoredVehicle(application.getVehicleId());
         if (vehicle == null || !"PENDING".equalsIgnoreCase(vehicle.getRegistrationStatus())) return "Pending initial vehicle record not found.";
@@ -360,13 +445,15 @@ public class ParkingService {
         return "OK";
     }
 
-    public String rejectStudentRegistration(String username, String reason) {
-        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return "Only Parking Administrators can reject Student registrations.";
+    public String rejectStudentRegistration(String username, String reason) { return rejectInitialAccountRegistration(username, reason); }
+
+    public String rejectInitialAccountRegistration(String username, String reason) {
+        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return "Only Administrators can reject registrations.";
         UserAccount account = findAccount(username);
-        if (account == null || account.getUserType() != UserType.STUDENT) return "Student account not found.";
-        if (!"PENDING".equalsIgnoreCase(account.getRegistrationStatus())) return "Student registration is already " + account.getRegistrationStatus() + ".";
+        if (account == null || (account.getUserType() != UserType.STUDENT && account.getUserType() != UserType.SCHOOL_PERSONNEL)) return "Registration account not found.";
+        if (!"PENDING".equalsIgnoreCase(account.getRegistrationStatus())) return "Registration is already " + account.getRegistrationStatus() + ".";
         if (isBlank(reason)) return "A rejection reason is required.";
-        VehicleApplication application = findInitialStudentApplication(account.getUserId());
+        VehicleApplication application = findInitialAccountApplication(account.getUserId());
         if (application == null || !"PENDING".equalsIgnoreCase(application.getStatus())) return "Pending initial vehicle application not found.";
         Vehicle vehicle = findStoredVehicle(application.getVehicleId());
         if (vehicle == null || !"PENDING".equalsIgnoreCase(vehicle.getRegistrationStatus())) return "Pending initial vehicle record not found.";
@@ -391,12 +478,32 @@ public class ParkingService {
         return null;
     }
 
-    private VehicleApplication findInitialStudentApplication(String accountId) {
-        for (VehicleApplication application : vehicleApplications) {
-            if (application.getOwnerId().equals(accountId)
-                    && "STUDENT_INITIAL_REGISTRATION".equals(application.getApplicationType())) return application;
-        }
+    private VehicleApplication findInitialAccountApplication(String accountId) {
+        for (VehicleApplication application : vehicleApplications)
+            if (application.getOwnerId().equals(accountId) && isInitialRegistration(application)) return application;
         return null;
+    }
+
+    private boolean isInitialRegistration(VehicleApplication application) {
+        return "STUDENT_INITIAL_REGISTRATION".equals(application.getApplicationType())
+                || "PERSONNEL_INITIAL_REGISTRATION".equals(application.getApplicationType());
+    }
+
+    public int getPendingAccountRegistrationCount() {
+        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return 0;
+        int count = 0;
+        for (UserAccount account : accounts.values())
+            if ((account.getUserType() == UserType.STUDENT || account.getUserType() == UserType.SCHOOL_PERSONNEL)
+                    && "PENDING".equalsIgnoreCase(account.getRegistrationStatus())) count++;
+        return count;
+    }
+
+    public int getPendingPaymentVerificationCount() {
+        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return 0;
+        int count = 0;
+        for (VehicleApplication application : vehicleApplications)
+            if ("PENDING_VERIFICATION".equalsIgnoreCase(application.getPaymentStatus())) count++;
+        return count;
     }
 
     public void logout() {
@@ -405,6 +512,24 @@ public class ParkingService {
 
     public UserAccount getCurrentUser() {
         return currentUser;
+    }
+
+    /** Campus map is a location guide only and contains no parking availability data. */
+    public CampusMapLayout getCampusMapLayout() {
+        if (currentUser == null) return null;
+        return campusMapLayout.copy();
+    }
+
+    /** Only an Administrator can adjust the in-memory campus guide layout. */
+    public boolean moveCampusMapLandmark(String landmarkId, double x, double y) {
+        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return false;
+        return campusMapLayout.setLocation(landmarkId, x, y);
+    }
+
+    public boolean resetCampusMapLayout() {
+        if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return false;
+        campusMapLayout = new CampusMapLayout();
+        return true;
     }
 
     public List<UserAccount> getAccounts() {
@@ -728,7 +853,7 @@ public class ParkingService {
     /** Returns this account's approved, unexpired vehicles that may be selected for a new session. */
     public List<Vehicle> getApprovedVehiclesForParking() {
         if (!isVehicleOwnerRole()) return Collections.emptyList();
-        if (isCurrentUser(UserType.STUDENT)) {
+        if (isCurrentUser(UserType.STUDENT) || isCurrentUser(UserType.SCHOOL_PERSONNEL)) {
             UserAccount account = findAccount(currentUser.getName());
             if (account == null || !"APPROVED".equalsIgnoreCase(account.getRegistrationStatus())) return Collections.emptyList();
         }
@@ -743,7 +868,7 @@ public class ParkingService {
 
     private Vehicle validateSelectedVehicleForParking(String vehicleId, ParkingSlot slot) {
         if (isBlank(vehicleId) || !isVehicleOwnerRole()) return null;
-        if (isCurrentUser(UserType.STUDENT)) {
+        if (isCurrentUser(UserType.STUDENT) || isCurrentUser(UserType.SCHOOL_PERSONNEL)) {
             UserAccount account = findAccount(currentUser.getName());
             if (account == null || !"APPROVED".equalsIgnoreCase(account.getRegistrationStatus())) return null;
         }
@@ -1420,9 +1545,15 @@ public class ParkingService {
 
     private boolean isHolder(ParkingSlot slot, String userId) {
         if (userId == null) return false;
-        return userId.equals(slot.getAssignedStudentId())
-                || userId.equals(slot.getAssignedPersonnelId())
-                || userId.equals(slot.getAssignedVisitorId());
+        if (userId.equals(slot.getAssignedStudentId()) || userId.equals(slot.getAssignedPersonnelId())
+                || userId.equals(slot.getAssignedVisitorId())) return true;
+        if (currentUser != null && userId.equals(currentUser.getUserId())) {
+            if (currentUser.getUserType() == UserType.STUDENT)
+                return currentUser.getStudentId().equals(slot.getAssignedStudentId());
+            if (currentUser.getUserType() == UserType.SCHOOL_PERSONNEL)
+                return currentUser.getPersonnelId().equals(slot.getAssignedPersonnelId());
+        }
+        return false;
     }
 
     private Student findStudentById(String studentId) {
@@ -1809,8 +1940,8 @@ public class ParkingService {
         if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return "Only Parking Administrators can approve vehicle applications.";
         VehicleApplication application = findStoredApplication(applicationId);
         if (application == null) return "Application not found.";
-        if ("STUDENT_INITIAL_REGISTRATION".equals(application.getApplicationType())) {
-            return "Approve the Student account and initial vehicle together from Registered Users.";
+        if (isInitialRegistration(application)) {
+            return "Approve the account and initial vehicle together from Registered Users.";
         }
         if (!"PENDING".equalsIgnoreCase(application.getStatus())) return "This application is already " + application.getStatus() + ".";
         if (application.getFeeAmount() > 0 && !"VERIFIED".equalsIgnoreCase(application.getPaymentStatus())) {
@@ -1840,8 +1971,8 @@ public class ParkingService {
         if (!isCurrentUser(UserType.PARKING_ADMINISTRATOR)) return "Only Parking Administrators can reject vehicle applications.";
         VehicleApplication application = findStoredApplication(applicationId);
         if (application == null) return "Application not found.";
-        if ("STUDENT_INITIAL_REGISTRATION".equals(application.getApplicationType())) {
-            return "Reject the Student account and initial vehicle together from Registered Users.";
+        if (isInitialRegistration(application)) {
+            return "Reject the account and initial vehicle together from Registered Users.";
         }
         if (!"PENDING".equalsIgnoreCase(application.getStatus())) return "This application is already " + application.getStatus() + ".";
         if (isBlank(reason)) return "A rejection reason is required.";
@@ -1905,13 +2036,13 @@ public class ParkingService {
 
     private String validateVehicleAccessForParking() {
         if (!isVehicleOwnerRole()) return "Only Students and School Personnel can park through this action.";
-        if (isCurrentUser(UserType.STUDENT)) {
+        if (isCurrentUser(UserType.STUDENT) || isCurrentUser(UserType.SCHOOL_PERSONNEL)) {
             UserAccount account = findAccount(currentUser.getName());
             if (account != null && "PENDING".equalsIgnoreCase(account.getRegistrationStatus())) {
-                return "Your Student registration is awaiting Parking Administrator approval.";
+                return "Your " + currentUser.getUserType().getLabel() + " registration is awaiting Parking Administrator approval.";
             }
             if (account != null && "REJECTED".equalsIgnoreCase(account.getRegistrationStatus())) {
-                return "Your Student registration was rejected. Administrator reason: "
+                return "Your " + currentUser.getUserType().getLabel() + " registration was rejected. Administrator reason: "
                         + account.getRegistrationRejectionReason();
             }
         }

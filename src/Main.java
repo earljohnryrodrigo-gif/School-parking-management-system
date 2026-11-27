@@ -1,4 +1,5 @@
 import service.ParkingService;
+import ui.AccountTypeSelectionPanel;
 import ui.DashboardPanel;
 import ui.LoginPanel;
 import ui.SignupPanel;
@@ -7,11 +8,10 @@ import javax.swing.*;
 import java.awt.*;
 
 public class Main {
-
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
+            ui.Theme.installDefaults();
             ParkingService service = new ParkingService();
-
             JFrame frame = new JFrame("Parking-ka-BOSS");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setUndecorated(false);
@@ -25,52 +25,29 @@ public class Main {
                 }
             });
             frame.setSize(1120, 720);
-
-            CardLayout cardLayout = new CardLayout();
-            JPanel rootPanel = new JPanel(cardLayout);
-
-            DashboardPanel[] dashboardRef = new DashboardPanel[1];
-
-            SignupPanel studentSignupPanel = new SignupPanel(
-                    service, model.UserType.STUDENT,
-                    () -> cardLayout.show(rootPanel, "LOGIN"),
-                    () -> cardLayout.show(rootPanel, "VISITOR_SIGNUP"),
-                    () -> {
-                        dashboardRef[0].refreshAll();
-                        cardLayout.show(rootPanel, "DASHBOARD");
-                    });
-            SignupPanel visitorSignupPanel = new SignupPanel(
-                    service, model.UserType.VISITOR,
-                    () -> cardLayout.show(rootPanel, "LOGIN"),
-                    () -> cardLayout.show(rootPanel, "SIGNUP"),
-                    () -> {
-                        dashboardRef[0].refreshAll();
-                        cardLayout.show(rootPanel, "DASHBOARD");
-                    });
-
-            LoginPanel loginPanel = new LoginPanel(
-                    service,
-                    () -> cardLayout.show(rootPanel, "SIGNUP"),
-                    () -> cardLayout.show(rootPanel, "VISITOR_SIGNUP"),
-                    () -> {
-                        dashboardRef[0].refreshAll();
-                        cardLayout.show(rootPanel, "DASHBOARD");
-                    }
-            );
-
-            DashboardPanel dashboardPanel = new DashboardPanel(
-                    service,
-                    () -> cardLayout.show(rootPanel, "LOGIN")
-            );
-            dashboardRef[0] = dashboardPanel;
-
-            rootPanel.add(studentSignupPanel, "SIGNUP");
-            rootPanel.add(visitorSignupPanel, "VISITOR_SIGNUP");
-            rootPanel.add(loginPanel, "LOGIN");
-            rootPanel.add(dashboardPanel, "DASHBOARD");
-
-            frame.add(rootPanel);
-            cardLayout.show(rootPanel, "SIGNUP");
+            CardLayout cards = new CardLayout();
+            JPanel root = new JPanel(cards);
+            DashboardPanel[] dashboard = new DashboardPanel[1];
+            Runnable showDashboard = () -> {
+                dashboard[0].refreshAll();
+                cards.show(root, "DASHBOARD");
+            };
+            AccountTypeSelectionPanel selection = new AccountTypeSelectionPanel(
+                    () -> cards.show(root, "LOGIN"), type -> cards.show(root, "SIGNUP_" + type.name()));
+            root.add(selection, "ACCOUNT_TYPES");
+            root.add(new SignupPanel(service, model.UserType.STUDENT,
+                    () -> cards.show(root, "ACCOUNT_TYPES"), null, showDashboard), "SIGNUP_STUDENT");
+            root.add(new SignupPanel(service, model.UserType.SCHOOL_PERSONNEL,
+                    () -> cards.show(root, "ACCOUNT_TYPES"), null, showDashboard), "SIGNUP_SCHOOL_PERSONNEL");
+            root.add(new ui.VisitorSignupPanel(service,
+                    () -> cards.show(root, "ACCOUNT_TYPES")), "SIGNUP_VISITOR");
+            root.add(new LoginPanel(service, () -> cards.show(root, "ACCOUNT_TYPES"),
+                    () -> cards.show(root, "ACCOUNT_TYPES"), showDashboard), "LOGIN");
+            DashboardPanel mainDashboard = new DashboardPanel(service, () -> cards.show(root, "LOGIN"));
+            dashboard[0] = mainDashboard;
+            root.add(mainDashboard, "DASHBOARD");
+            frame.add(root);
+            cards.show(root, "LOGIN");
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
         });

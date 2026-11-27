@@ -1,15 +1,17 @@
 package model;
 
+import security.PasswordHasher;
+
 public class Student {
     private final String studentId;
     private final String name;
-    private final String password;
+    private final String passwordHash;
     private String assignedSlotNumber;
 
     public Student(String studentId, String name, String password) {
         this.studentId = studentId;
         this.name = name;
-        this.password = password;
+        this.passwordHash = PasswordHasher.hash(password);
         this.assignedSlotNumber = null;
     }
 
@@ -22,7 +24,7 @@ public class Student {
     }
 
     public String getPassword() {
-        return password;
+        return passwordHash;
     }
 
     public String viewAssignedSlot() {

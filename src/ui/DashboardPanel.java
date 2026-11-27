@@ -5,6 +5,7 @@ import model.ParkingSlot;
 import model.Reservation;
 import model.UserType;
 import model.Vehicle;
+import model.VehicleApplication;
 import service.ParkingService;
 
 import javax.swing.*;
@@ -13,6 +14,8 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.plaf.basic.BasicTabbedPaneUI;
 import java.awt.*;
+import java.awt.AlphaComposite;
+import java.awt.image.BufferedImage;
 import java.time.LocalDate;
 
 public class DashboardPanel extends JPanel {
@@ -42,11 +45,14 @@ public class DashboardPanel extends JPanel {
     ) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
-    private final DefaultTableModel userModel = new DefaultTableModel(new String[]{"Account ID", "Full Name", "Username", "Account Type", "Account Status", "Registration Details"}, 0) {
+    private final DefaultTableModel userModel = new DefaultTableModel(new String[]{
+            "Account ID", "Full Name", "Username", "Account Type", "Student ID / Personnel ID",
+            "Course & Year / Department", "Vehicle Type", "Plate Number", "Registration Date",
+            "Account Status", "Registration Details / Actions"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
     private final DefaultTableModel pendingStudentModel = new DefaultTableModel(new String[]{
-            "Full Name", "Student ID", "Course & Year", "Username", "Vehicle Type", "Plate Number", "Registration Status"}, 0) {
+            "Full Name", "Account Type", "ID", "Course / Department", "Username", "Vehicle Type", "Plate Number", "Registration Date", "Registration Status"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
 
@@ -67,12 +73,15 @@ public class DashboardPanel extends JPanel {
     private final JButton deleteSlotBtn = Theme.secondaryButton("Delete Slot");
 
     private final JTabbedPane tabs = new JTabbedPane();
+    private final TabTransitionOverlay transitionOverlay = new TabTransitionOverlay();
     private final NavigationSidebar sidebar;
+    private JTable registeredUsersTable;
     private JPanel slotsTabPanel;
     private JPanel reservationsTabPanel;
     private JPanel vehiclesTabPanel;
     private JPanel recordsTabPanel;
     private JPanel usersTabPanel;
+    private JPanel campusMapTabPanel;
     private JPanel adminOverviewTabPanel;
     private JPanel zoneOverviewPanel;
     private UserType displayedRole;
@@ -83,8 +92,8 @@ public class DashboardPanel extends JPanel {
     private final JPanel slotManagementNotices = new JPanel();
     private String adminSlotZone = "Student";
     private final JTextField userSearchField = new JTextField(18);
-    private final JComboBox<String> userTypeFilter = new JComboBox<>(new String[]{"Students", "School Personnel"});
-    private final JLabel pendingStudentHeading = new JLabel("Pending Student Registrations");
+    private final JComboBox<String> userTypeFilter = new JComboBox<>(new String[]{"Students", "School Personnel", "Visitors"});
+    private final JLabel pendingStudentHeading = new JLabel("Pending Student and Personnel Registrations");
     private final Timer expiryReminderTimer = new Timer(60_000, e -> refreshExpiryReminderBanner());
     private final Timer visitorNoShowTimer;
     private VehicleManagementPanel vehicleManagementPanel;
@@ -100,9 +109,10 @@ public class DashboardPanel extends JPanel {
         this.sidebar = new NavigationSidebar(() -> {
             expiryReminderTimer.stop();
             visitorNoShowTimer.stop();
+            transitionOverlay.stop();
             registrationPromptedUserId = null;
             service.logout();
-            onLogout.run();
+            this.onLogout.run();
         });
 
         setLayout(new BorderLayout(0, 0));
@@ -131,7 +141,8 @@ public class DashboardPanel extends JPanel {
         JPanel contentArea = new JPanel(new BorderLayout(14, 0));
         contentArea.setOpaque(false);
         contentArea.add(sidebar, BorderLayout.WEST);
-        contentArea.add(buildTabs(), BorderLayout.CENTER);
+        buildTabs();
+        contentArea.add(buildTabsLayer(), BorderLayout.CENTER);
         workspace.add(contentArea, BorderLayout.CENTER);
         add(workspace, BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
@@ -195,6 +206,7 @@ public class DashboardPanel extends JPanel {
         recordsTabPanel = buildRecordsTab();
         usersTabPanel = buildUsersTab();
         adminOverviewTabPanel = buildAdminOverviewTab();
+        campusMapTabPanel = new CampusParkingMapPanel(service);
 
         tabs.addTab("Parking Slots", slotsTabPanel);
         tabs.addTab("Reservations", reservationsTabPanel);
@@ -203,11 +215,26 @@ public class DashboardPanel extends JPanel {
         return tabs;
     }
 
+    private JLayeredPane buildTabsLayer() {
+        JLayeredPane layer = new JLayeredPane() {
+            @Override public void doLayout() {
+                tabs.setBounds(0, 0, getWidth(), getHeight());
+                transitionOverlay.setBounds(0, 0, getWidth(), getHeight());
+            }
+
+            @Override public Dimension getPreferredSize() { return tabs.getPreferredSize(); }
+        };
+        layer.setOpaque(false);
+        layer.add(tabs, JLayeredPane.DEFAULT_LAYER);
+        layer.add(transitionOverlay, JLayeredPane.PALETTE_LAYER);
+        return layer;
+    }
+
     private JPanel buildAdminOverviewTab() {
         JPanel panel = new JPanel(new BorderLayout(12, 12));
         panel.setBackground(Theme.BACKGROUND);
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-        panel.add(Theme.sectionHeader("Campus Parking Overview", "Live capacity by parking zone"), BorderLayout.NORTH);
+        panel.add(Theme.sectionHeader("🏠 Campus Parking Overview", "Live capacity by parking zone"), BorderLayout.NORTH);
         zoneOverviewPanel = new JPanel(new GridLayout(1, 3, 14, 0));
         zoneOverviewPanel.setOpaque(false);
         panel.add(zoneOverviewPanel, BorderLayout.CENTER);
@@ -225,6 +252,7 @@ public class DashboardPanel extends JPanel {
         } else {
             tabs.addTab("Parking Slots", slotsTabPanel);
         }
+        tabs.addTab("Campus Parking Map", campusMapTabPanel);
         if (role == UserType.PARKING_ADMINISTRATOR) {
             tabs.insertTab("Dashboard", null, adminOverviewTabPanel, null, 0);
         }
@@ -258,39 +286,39 @@ public class DashboardPanel extends JPanel {
     private void rebuildSidebar(UserType role) {
         java.util.List<NavigationSidebar.NavItem> items = new java.util.ArrayList<>();
         if (role == UserType.VISITOR) {
-            addNavItem(items, "RS", "Reservations", reservationsTabPanel);
-            addNavItem(items, "RQ", "Request Reservation", slotsTabPanel);
+            addNavItem(items, "📅", "Reservations", reservationsTabPanel);
+            addNavItem(items, "📝", "Request Reservation", slotsTabPanel);
+            addNavItem(items, "🗺", "Campus Parking Map", campusMapTabPanel);
         } else {
             if (role == UserType.PARKING_ADMINISTRATOR)
-                addNavItem(items, "DB", "Dashboard", adminOverviewTabPanel);
+                addNavItem(items, "🏠", "Dashboard", adminOverviewTabPanel);
             if (role == UserType.PARKING_ADMINISTRATOR)
-                addNavItem(items, "US", "Registered Users", usersTabPanel);
+                addNavItem(items, "👥", "Registered Users", usersTabPanel);
             if (role == UserType.PARKING_ADMINISTRATOR) {
-                addAdminZoneNavItem(items, "S", "Student", "Student Parking Slots");
-                addAdminZoneNavItem(items, "P", "School Personnel", "School Personnel Parking Slots");
-                addAdminZoneNavItem(items, "V", "Visitor", "Visitor Parking Slots");
+                addAdminZoneNavItem(items, "🅿", "Student", "Student Parking Slots");
+                addAdminZoneNavItem(items, "🅿", "School Personnel", "School Personnel Parking Slots");
+                addAdminZoneNavItem(items, "🅿", "Visitor", "Visitor Parking Slots");
             } else {
-                addNavItem(items, "SL", "Parking Slots", slotsTabPanel);
+                addNavItem(items, "🅿", "Parking Slots", slotsTabPanel);
             }
             if (role == UserType.SCHOOL_PERSONNEL || role == UserType.PARKING_ADMINISTRATOR)
-                addNavItem(items, "RS", "Reservations", reservationsTabPanel);
+                addNavItem(items, "📅", "Reservations", reservationsTabPanel);
+            addNavItem(items, "🗺", "Campus Parking Map", campusMapTabPanel);
             if (role == UserType.STUDENT || role == UserType.SCHOOL_PERSONNEL || role == UserType.PARKING_ADMINISTRATOR) {
-                addNavItem(items, "VH", role == UserType.PARKING_ADMINISTRATOR ? "Registered Vehicles" : "My Vehicles", vehiclesTabPanel);
+                addNavItem(items, "🚘", role == UserType.PARKING_ADMINISTRATOR ? "Registered Vehicles" : "My Vehicles", vehiclesTabPanel);
                 if (role == UserType.PARKING_ADMINISTRATOR) {
-                    items.add(new NavigationSidebar.NavItem("PAY", "Payment Verification", () -> {
-                        tabs.setSelectedComponent(vehiclesTabPanel);
-                        sidebar.setSelected("Payment Verification");
+                    items.add(new NavigationSidebar.NavItem("💳", "Payment Verification", () -> {
+                        navigateTo(vehiclesTabPanel, "Payment Verification");
                         vehicleManagementPanel.showPaymentVerification();
                     }));
                 }
                 if (role == UserType.SCHOOL_PERSONNEL) {
                     items.add(new NavigationSidebar.NavItem("REG", "Vehicle Registration", () -> {
-                        tabs.setSelectedComponent(vehiclesTabPanel);
-                        sidebar.setSelected("Vehicle Registration");
+                        navigateTo(vehiclesTabPanel, "Vehicle Registration");
                         vehicleManagementPanel.openRegistrationForm();
                     }));
                 }
-                addNavItem(items, "LG", role == UserType.PARKING_ADMINISTRATOR ? "Entry / Exit Logs" : "Parking History", recordsTabPanel);
+                addNavItem(items, "🕒", role == UserType.PARKING_ADMINISTRATOR ? "Entry / Exit Logs" : "Parking History", recordsTabPanel);
             }
         }
         Component selected = tabs.getSelectedComponent();
@@ -298,6 +326,8 @@ public class DashboardPanel extends JPanel {
         sidebar.setItems(items, selectedLabel);
         if (role == UserType.PARKING_ADMINISTRATOR) {
             sidebar.setBadge("Reservations", service.getPendingVisitorReservationCount());
+            sidebar.setBadge("Registered Users", service.getPendingAccountRegistrationCount());
+            sidebar.setBadge("Payment Verification", service.getPendingPaymentVerificationCount());
         }
     }
 
@@ -306,8 +336,7 @@ public class DashboardPanel extends JPanel {
         items.add(new NavigationSidebar.NavItem(icon, label, () -> {
             adminSlotZone = zone;
             slotInput.setText("");
-            tabs.setSelectedComponent(slotsTabPanel);
-            sidebar.setSelected(label);
+            navigateTo(slotsTabPanel, label);
             refreshAll();
         }));
     }
@@ -317,19 +346,40 @@ public class DashboardPanel extends JPanel {
             UserType role = service.getCurrentUser() == null ? null : service.getCurrentUser().getUserType();
             if (target == slotsTabPanel && (role == UserType.STUDENT || role == UserType.SCHOOL_PERSONNEL)
                     && !service.canAccessParkingSlotsForCurrentUser()) {
-                tabs.setSelectedComponent(vehiclesTabPanel);
-                sidebar.setSelected("My Vehicles");
+                navigateTo(vehiclesTabPanel, "My Vehicles");
                 JOptionPane.showMessageDialog(this, service.getVehicleAccessMessageForCurrentUser(),
                         "Vehicle Approval Required", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            tabs.setSelectedComponent(target);
-            sidebar.setSelected(label);
+            navigateTo(target, label);
         }));
+    }
+
+    private void navigateTo(Component target, String label) {
+        if (target == tabs.getSelectedComponent()) {
+            sidebar.setSelected(label);
+            return;
+        }
+        BufferedImage previousView = captureCurrentTab();
+        tabs.setSelectedComponent(target);
+        tabs.revalidate();
+        tabs.repaint();
+        sidebar.setSelected(label);
+        if (previousView != null) transitionOverlay.fadeFrom(previousView);
+    }
+
+    private BufferedImage captureCurrentTab() {
+        if (!tabs.isShowing() || tabs.getWidth() < 2 || tabs.getHeight() < 2) return null;
+        BufferedImage image = new BufferedImage(tabs.getWidth(), tabs.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        tabs.printAll(graphics);
+        graphics.dispose();
+        return image;
     }
 
     private String navigationLabelFor(Component component, UserType role) {
         if (component == adminOverviewTabPanel) return "Dashboard";
+        if (component == campusMapTabPanel) return "Campus Parking Map";
         if (role == UserType.PARKING_ADMINISTRATOR && component == slotsTabPanel)
             return adminZoneNavigationLabel(adminSlotZone);
         if (role == UserType.VISITOR && component == slotsTabPanel) return "Request Reservation";
@@ -403,7 +453,12 @@ public class DashboardPanel extends JPanel {
         editSlotBtn.addActionListener(e -> handleEditSlot());
         deleteSlotBtn.addActionListener(e -> handleDeleteSlot());
 
-        panel.add(controls, BorderLayout.NORTH);
+        JPanel slotHeader = new JPanel();
+        slotHeader.setOpaque(false);
+        slotHeader.setLayout(new BoxLayout(slotHeader, BoxLayout.Y_AXIS));
+        slotHeader.add(Theme.sectionHeader("🅿 Parking Slots", "Choose an available campus parking space"));
+        slotHeader.add(controls);
+        panel.add(slotHeader, BorderLayout.NORTH);
         JScrollPane slotScroll = new JScrollPane(table);
         Theme.styleScrollPane(slotScroll);
         panel.add(slotScroll, BorderLayout.CENTER);
@@ -484,7 +539,12 @@ public class DashboardPanel extends JPanel {
         adminResActions.add(arrivedBtn);
         adminResActions.add(departedBtn);
 
-        panel.add(adminResActions, BorderLayout.NORTH);
+        JPanel reservationHeader = new JPanel();
+        reservationHeader.setOpaque(false);
+        reservationHeader.setLayout(new BoxLayout(reservationHeader, BoxLayout.Y_AXIS));
+        reservationHeader.add(Theme.sectionHeader("📅 Reservations", "Review and manage parking requests"));
+        reservationHeader.add(adminResActions);
+        panel.add(reservationHeader, BorderLayout.NORTH);
         JScrollPane reservationScroll = new JScrollPane(table);
         Theme.styleScrollPane(reservationScroll);
         panel.add(reservationScroll, BorderLayout.CENTER);
@@ -552,6 +612,7 @@ public class DashboardPanel extends JPanel {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.setBackground(Theme.BACKGROUND);
         panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        panel.add(Theme.sectionHeader("🕒 Parking History", "Review completed and active parking records"), BorderLayout.NORTH);
         JTable table = new JTable(recordModel);
         table.setRowHeight(30);
         table.getTableHeader().setFont(Theme.FONT_TABLE_HEADER);
@@ -574,10 +635,12 @@ public class DashboardPanel extends JPanel {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.setBackground(Theme.BACKGROUND);
         panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
-        JTable accountsTable = new JTable(userModel);
-        styleUserTable(accountsTable);
+        registeredUsersTable = new JTable(userModel);
+        styleRegisteredUsersTable(registeredUsersTable);
         JTable pendingTable = new JTable(pendingStudentModel);
         styleUserTable(pendingTable);
+        setColumnWidths(pendingTable, new int[]{150, 125, 125, 170, 125, 115, 130, 115, 135});
+        pendingTable.getColumnModel().getColumn(8).setCellRenderer(accountStatusRenderer());
 
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         toolbar.setOpaque(false);
@@ -593,6 +656,9 @@ public class DashboardPanel extends JPanel {
         JButton refresh = Theme.secondaryButton("Refresh Users");
         refresh.addActionListener(e -> refreshAll());
         toolbar.add(refresh);
+        JButton viewDetails = Theme.secondaryButton("View Details");
+        viewDetails.addActionListener(e -> showSelectedRegisteredUserDetails());
+        toolbar.add(viewDetails);
         panel.add(toolbar, BorderLayout.NORTH);
 
         pendingStudentHeading.setFont(Theme.FONT_LABEL_BOLD);
@@ -606,8 +672,8 @@ public class DashboardPanel extends JPanel {
         JScrollPane pendingScroll = new JScrollPane(pendingTable);
         Theme.styleScrollPane(pendingScroll);
         pendingPanel.add(pendingScroll, BorderLayout.CENTER);
-        JButton approveStudent = Theme.primaryButton("Approve Student + Initial Vehicle");
-        JButton rejectStudent = Theme.secondaryButton("Reject Student Registration");
+        JButton approveStudent = Theme.primaryButton("Approve Account + Initial Vehicle");
+        JButton rejectStudent = Theme.secondaryButton("Reject Registration");
         JPanel reviewActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
         reviewActions.setOpaque(false);
         reviewActions.add(approveStudent);
@@ -618,18 +684,28 @@ public class DashboardPanel extends JPanel {
 
         JPanel accountsPanel = new JPanel(new BorderLayout(0, 5));
         accountsPanel.setBackground(Theme.CARD_WHITE);
-        JLabel accountsHeading = new JLabel("Registered Students and School Personnel");
+        JLabel accountsHeading = new JLabel("Registered Users");
         accountsHeading.setFont(Theme.FONT_LABEL_BOLD);
         accountsHeading.setForeground(Theme.TEXT_DARK);
         accountsPanel.add(accountsHeading, BorderLayout.NORTH);
-        JScrollPane userScroll = new JScrollPane(accountsTable);
+        JScrollPane userScroll = new JScrollPane(registeredUsersTable);
         Theme.styleScrollPane(userScroll);
+        userScroll.setColumnHeaderView(registeredUsersTable.getTableHeader());
         accountsPanel.add(userScroll, BorderLayout.CENTER);
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, pendingPanel, accountsPanel);
         split.setResizeWeight(0.48);
         split.setDividerLocation(245);
+        split.setDividerSize(8);
+        split.setContinuousLayout(true);
+        split.setOneTouchExpandable(false);
         split.setBorder(null);
         panel.add(split, BorderLayout.CENTER);
+
+        registeredUsersTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent event) {
+                if (event.getClickCount() == 2) showSelectedRegisteredUserDetails();
+            }
+        });
 
         userTypeFilter.addActionListener(e -> refreshRegisteredUsers(true));
         userSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
@@ -647,31 +723,63 @@ public class DashboardPanel extends JPanel {
         Theme.styleTable(table);
     }
 
+    private void styleRegisteredUsersTable(JTable table) {
+        styleUserTable(table);
+        table.setRowHeight(36);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        setColumnWidths(table, new int[]{100, 160, 110, 125, 155, 175, 135, 160, 120, 115, 190});
+        table.getColumnModel().getColumn(9).setCellRenderer(accountStatusRenderer());
+        DefaultTableCellRenderer detailsRenderer = new DefaultTableCellRenderer();
+        detailsRenderer.setForeground(Theme.PRIMARY_BLUE);
+        table.getColumnModel().getColumn(10).setCellRenderer(detailsRenderer);
+        table.setToolTipText("Select a user and choose View Details, or double-click a row.");
+    }
+
+    private void setColumnWidths(JTable table, int[] widths) {
+        for (int index = 0; index < Math.min(widths.length, table.getColumnCount()); index++) {
+            table.getColumnModel().getColumn(index).setPreferredWidth(widths[index]);
+        }
+    }
+
+    private TableCellRenderer accountStatusRenderer() {
+        return (table, value, isSelected, hasFocus, row, column) -> {
+            String status = value == null ? "UNKNOWN" : value.toString().toUpperCase(java.util.Locale.ROOT);
+            JLabel badge = Theme.statusBadge(status);
+            badge.setHorizontalAlignment(SwingConstants.CENTER);
+            if (isSelected) {
+                badge.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(Theme.PRIMARY_BLUE), badge.getBorder()));
+            }
+            return badge;
+        };
+    }
+
     private void reviewSelectedStudentRegistration(JTable table, boolean approve) {
         int selectedRow = table.getSelectedRow();
         if (selectedRow < 0) {
             JOptionPane.showMessageDialog(this, "Select a pending Student registration first.");
             return;
         }
-        String username = String.valueOf(pendingStudentModel.getValueAt(selectedRow, 3));
+        String username = String.valueOf(pendingStudentModel.getValueAt(selectedRow, 4));
         String result;
         if (approve) {
-            result = service.approveStudentRegistration(username);
+            result = service.approveInitialAccountRegistration(username);
         } else {
-            String reason = JOptionPane.showInputDialog(this, "Enter the reason for rejecting this Student registration:",
-                    "Reject Student Registration", JOptionPane.QUESTION_MESSAGE);
+            String reason = JOptionPane.showInputDialog(this, "Enter the reason for rejecting this registration:",
+                    "Reject Registration", JOptionPane.QUESTION_MESSAGE);
             if (reason == null) return;
             if (reason.isBlank()) {
                 JOptionPane.showMessageDialog(this, "A rejection reason is required.", "Reason Required", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            result = service.rejectStudentRegistration(username, reason);
+            result = service.rejectInitialAccountRegistration(username, reason);
         }
         if ("OK".equals(result)) {
             refreshAll();
             JOptionPane.showMessageDialog(this, approve
-                    ? "Student account and initial vehicle approved together."
-                    : "Student account and initial vehicle rejected together.");
+                    ? "Account and initial vehicle approved together."
+                    : "Account and initial vehicle rejected together.");
         } else {
             JOptionPane.showMessageDialog(this, result, "Registration Review", JOptionPane.WARNING_MESSAGE);
         }
@@ -680,23 +788,43 @@ public class DashboardPanel extends JPanel {
     private void refreshRegisteredUsers(boolean isAdmin) {
         if (!isAdmin) return;
         java.util.List<ParkingService.UserAccount> accounts = service.getAccounts();
+        java.util.List<Vehicle> vehicles = service.getVehicles();
+        java.util.List<Reservation> reservations = service.getReservations();
         String selectedGroup = String.valueOf(userTypeFilter.getSelectedItem());
         String query = userSearchField.getText().trim().toLowerCase(java.util.Locale.ROOT);
         userModel.setRowCount(0);
         for (ParkingService.UserAccount account : accounts) {
-            if (account.getUserType() != UserType.STUDENT && account.getUserType() != UserType.SCHOOL_PERSONNEL) continue;
-            boolean student = account.getUserType() == UserType.STUDENT;
-            if (student != "Students".equals(selectedGroup)) continue;
-            String details = account.getProfileInfo();
-            if (!account.getRegistrationRejectionReason().isBlank()) {
+            String expectedGroup = account.getUserType() == UserType.STUDENT ? "Students"
+                    : account.getUserType() == UserType.SCHOOL_PERSONNEL ? "School Personnel"
+                    : account.getUserType() == UserType.VISITOR ? "Visitors" : "";
+            if (!expectedGroup.equals(selectedGroup)) continue;
+            boolean accountHasPendingReview = account.getUserType() != UserType.VISITOR
+                    && "PENDING".equalsIgnoreCase(account.getRegistrationStatus());
+            if (accountHasPendingReview) continue;
+
+            String fullName = displayFullName(account);
+            String identifier = registeredUserIdentifier(account);
+            String program = registeredUserProgram(account);
+            String vehicleTypes = registeredUserVehicleTypes(account, vehicles, reservations);
+            String plates = registeredUserPlates(account, vehicles, reservations);
+            String registeredDate = account.getRegisteredAt() == null ? "—"
+                    : account.getRegisteredAt().toLocalDate().toString();
+            String details = account.getProfileInfo() == null || account.getProfileInfo().isBlank()
+                    ? "No additional registration details" : account.getProfileInfo();
+            if (!account.getRegistrationRejectionReason().isBlank())
                 details += " | Rejection: " + account.getRegistrationRejectionReason();
-            }
-            String searchable = (account.getUserId() + " " + account.getFullName() + " " + account.getName() + " "
-                    + account.getUserType().getLabel() + " " + account.getRegistrationStatus() + " " + details)
-                    .toLowerCase(java.util.Locale.ROOT);
+            if (account.getUserType() == UserType.VISITOR)
+                details += " | Visitor vehicle information is shown from reservation requests.";
+            String detailsAction = account.getRegistrationRejectionReason().isBlank()
+                    ? "View Details" : "View Details · Rejected";
+            String searchable = (account.getUserId() + " " + fullName + " " + account.getName() + " "
+                    + account.getUserType().getLabel() + " " + identifier + " " + program + " "
+                    + vehicleTypes + " " + plates + " " + registeredDate + " "
+                    + account.getRegistrationStatus() + " " + details).toLowerCase(java.util.Locale.ROOT);
             if (!query.isEmpty() && !searchable.contains(query)) continue;
-            userModel.addRow(new Object[]{account.getUserId(), account.getFullName(), account.getName(),
-                    account.getUserType().getLabel(), account.getRegistrationStatus(), details});
+            userModel.addRow(new Object[]{account.getUserId(), fullName, account.getName(),
+                    account.getUserType().getLabel(), identifier, program, vehicleTypes, plates,
+                    registeredDate, account.getRegistrationStatus(), detailsAction});
         }
 
         pendingStudentModel.setRowCount(0);
@@ -707,11 +835,159 @@ public class DashboardPanel extends JPanel {
                 if (candidate.getUserId().equals(application.getOwnerId())) { account = candidate; break; }
             }
             if (account == null) continue;
-            pendingStudentModel.addRow(new Object[]{application.getApplicantName(),
+            pendingStudentModel.addRow(new Object[]{application.getApplicantName(), account.getUserType().getLabel(),
                     application.getIdentificationNumber(), application.getProgramOrDepartment(), account.getName(),
-                    application.getVehicleType(), application.getPlateNumber(), account.getRegistrationStatus()});
+                    application.getVehicleType(), application.getPlateNumber(), application.getSubmittedAt().toLocalDate(), account.getRegistrationStatus()});
         }
-        pendingStudentHeading.setText("Pending Student Registrations (" + pendingStudentModel.getRowCount() + ")");
+        pendingStudentHeading.setText("Pending Student and Personnel Registrations (" + pendingStudentModel.getRowCount() + ")");
+    }
+
+    private String displayFullName(ParkingService.UserAccount account) {
+        String fullName = account.getFullName() == null ? "" : account.getFullName().trim();
+        if (fullName.isEmpty() || fullName.equalsIgnoreCase(account.getName())) return "Not provided";
+        return fullName;
+    }
+
+    private String registeredUserIdentifier(ParkingService.UserAccount account) {
+        if (account.getUserType() == UserType.STUDENT) {
+            return account.getStudentId().isBlank() ? account.getUserId() : account.getStudentId();
+        }
+        if (account.getUserType() == UserType.SCHOOL_PERSONNEL) {
+            return account.getPersonnelId().isBlank() ? account.getUserId() : account.getPersonnelId();
+        }
+        return "—";
+    }
+
+    private String registeredUserProgram(ParkingService.UserAccount account) {
+        if (account.getUserType() == UserType.STUDENT) return emptyValue(account.getCourseYear());
+        if (account.getUserType() == UserType.SCHOOL_PERSONNEL) return emptyValue(account.getDepartment());
+        return "—";
+    }
+
+    private String registeredUserVehicleTypes(ParkingService.UserAccount account, java.util.List<Vehicle> vehicles,
+                                              java.util.List<Reservation> reservations) {
+        java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>();
+        for (Vehicle vehicle : vehicles) {
+            if (account.getUserId().equals(vehicle.getOwnerId())) values.add(emptyValue(vehicle.getVehicleType()));
+        }
+        if (account.getUserType() == UserType.VISITOR) {
+            for (Reservation reservation : reservations) {
+                if (account.getUserId().equals(reservation.getRequesterId()) && reservation.getVehicleType() != null)
+                    values.add(reservation.getVehicleType() + " (reservation)");
+            }
+        }
+        return values.isEmpty() ? "—" : String.join("; ", values);
+    }
+
+    private String registeredUserPlates(ParkingService.UserAccount account, java.util.List<Vehicle> vehicles,
+                                        java.util.List<Reservation> reservations) {
+        java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>();
+        for (Vehicle vehicle : vehicles) {
+            if (account.getUserId().equals(vehicle.getOwnerId())) values.add(emptyValue(vehicle.getPlateNumber()));
+        }
+        if (account.getUserType() == UserType.VISITOR) {
+            for (Reservation reservation : reservations) {
+                if (account.getUserId().equals(reservation.getRequesterId()) && reservation.getPlateNumber() != null)
+                    values.add(reservation.getPlateNumber() + " (reservation)");
+            }
+        }
+        return values.isEmpty() ? "—" : String.join("; ", values);
+    }
+
+    private String emptyValue(String value) { return value == null || value.isBlank() ? "Not provided" : value; }
+
+    private void showSelectedRegisteredUserDetails() {
+        int selectedRow = registeredUsersTable.getSelectedRow();
+        if (selectedRow < 0) {
+            JOptionPane.showMessageDialog(this, "Select a registered user first.", "View User Details", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int modelRow = registeredUsersTable.convertRowIndexToModel(selectedRow);
+        String username = String.valueOf(userModel.getValueAt(modelRow, 2));
+        ParkingService.UserAccount account = null;
+        for (ParkingService.UserAccount candidate : service.getAccounts()) {
+            if (candidate.getName().equalsIgnoreCase(username)) { account = candidate; break; }
+        }
+        if (account == null) {
+            JOptionPane.showMessageDialog(this, "That account could not be found. Refresh the user list and try again.",
+                    "View User Details", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JTextArea text = new JTextArea(formatRegisteredUserDetails(account), 22, 68);
+        text.setEditable(false);
+        text.setLineWrap(true);
+        text.setWrapStyleWord(true);
+        text.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        text.setForeground(Theme.TEXT_DARK);
+        text.setBackground(Theme.CARD_WHITE);
+        text.setCaretPosition(0);
+        JScrollPane scroll = new JScrollPane(text);
+        Theme.styleScrollPane(scroll);
+        JOptionPane.showMessageDialog(this, scroll, "Registered User Details", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private String formatRegisteredUserDetails(ParkingService.UserAccount account) {
+        StringBuilder details = new StringBuilder();
+        details.append("ACCOUNT INFORMATION\n")
+                .append("Full Name: ").append(displayFullName(account)).append('\n')
+                .append("Account ID: ").append(account.getUserId()).append('\n')
+                .append("Username: ").append(account.getName()).append('\n')
+                .append("Account Type: ").append(account.getUserType().getLabel()).append('\n')
+                .append("Student ID / Personnel ID: ").append(registeredUserIdentifier(account)).append('\n')
+                .append("Course & Year / Department: ").append(registeredUserProgram(account)).append('\n')
+                .append("Registration Date: ").append(account.getRegisteredAt() == null ? "—" : account.getRegisteredAt().toLocalDate()).append('\n')
+                .append("Account Status: ").append(account.getRegistrationStatus()).append('\n')
+                .append("Registration Details: ").append(emptyValue(account.getProfileInfo())).append('\n');
+        if (!account.getRegistrationRejectionReason().isBlank())
+            details.append("Administrator Rejection Reason: ").append(account.getRegistrationRejectionReason()).append('\n');
+
+        java.util.List<Vehicle> userVehicles = new java.util.ArrayList<>();
+        for (Vehicle vehicle : service.getVehicles()) {
+            if (account.getUserId().equals(vehicle.getOwnerId())) userVehicles.add(vehicle);
+        }
+        java.util.List<VehicleApplication> userApplications = service.getVehicleApplications();
+        details.append("\nVEHICLES\n");
+        if (userVehicles.isEmpty()) details.append("No registered vehicle record is available.\n");
+        for (Vehicle vehicle : userVehicles) {
+            details.append("• ").append(vehicle.getVehicleType()).append(" — ").append(vehicle.getPlateNumber())
+                    .append(" | Status: ").append(vehicle.getRegistrationStatus())
+                    .append(" | Approval: ").append(vehicle.getApprovalDate() == null ? "—" : vehicle.getApprovalDate())
+                    .append(" | Expires: ").append(vehicle.getExpirationDate() == null ? "—" : vehicle.getExpirationDate())
+                    .append(" | Payment: ").append(vehicle.getPaymentStatus()).append('\n');
+            for (VehicleApplication application : userApplications) {
+                if (!vehicle.getVehicleId().equals(application.getVehicleId())) continue;
+                details.append("   Application: ").append(application.getApplicationType())
+                        .append(" / ").append(application.getStatus())
+                        .append(" | Fee: ₱").append(application.getFeeAmount())
+                        .append(" | Payment: ").append(application.getPaymentStatus());
+                if (!application.getPaymentMethod().isBlank()) details.append(" via ").append(application.getPaymentMethod());
+                if (!application.getPaymentReference().isBlank()) details.append(" | Reference: ").append(application.getPaymentReference());
+                if (!application.getRejectionReason().isBlank()) details.append(" | Note: ").append(application.getRejectionReason());
+                if (!application.getPaymentRejectionReason().isBlank()) details.append(" | Payment Note: ").append(application.getPaymentRejectionReason());
+                details.append('\n');
+            }
+        }
+
+        if (account.getUserType() == UserType.VISITOR) {
+            details.append("\nVISITOR RESERVATIONS\n");
+            boolean found = false;
+            for (Reservation reservation : service.getReservations()) {
+                if (!account.getUserId().equals(reservation.getRequesterId())) continue;
+                found = true;
+                details.append("• ").append(reservation.getReservationId()).append(" | ")
+                        .append(reservation.getRequestedDate()).append(" | ").append(reservation.getVehicleType())
+                        .append(" — ").append(reservation.getPlateNumber()).append(" | Status: ").append(reservation.getStatus())
+                        .append(" | Slot: ").append(reservation.getSlotNumber() == null ? "Not assigned" : reservation.getSlotNumber())
+                        .append(" | Time: ").append(reservation.getStartDateTime() == null ? "Not assigned" : reservation.getStartDateTime())
+                        .append(" — ").append(reservation.getEndDateTime() == null ? "Not assigned" : reservation.getEndDateTime());
+                if (!reservation.getRejectionReason().isBlank()) details.append(" | Reason: ").append(reservation.getRejectionReason());
+                details.append('\n');
+            }
+            if (!found) details.append("No Visitor reservation requests are available.\n");
+        }
+
+        return details.toString();
     }
 
     private JPanel buildFooter() {
@@ -936,12 +1212,17 @@ public class DashboardPanel extends JPanel {
         }
 
         rebuildTabsForRole(role);
+        ((CampusParkingMapPanel) campusMapTabPanel).setRole(role);
 
         statsPanel.removeAll();
         java.util.List<ParkingSlot> visibleSlots = service.getSlotsForUser(role);
         ParkingService.SlotSummary slotSummary = service.getSlotSummary(role);
         java.util.List<Reservation> visibleReservations = service.getReservations();
-        if (isAdmin) sidebar.setBadge("Reservations", service.getPendingVisitorReservationCount());
+        if (isAdmin) {
+            sidebar.setBadge("Reservations", service.getPendingVisitorReservationCount());
+            sidebar.setBadge("Registered Users", service.getPendingAccountRegistrationCount());
+            sidebar.setBadge("Payment Verification", service.getPendingPaymentVerificationCount());
+        }
         int available = slotSummary.getAvailable();
         int occupied = slotSummary.getOccupied();
         int reserved = slotSummary.getReserved();
@@ -1083,7 +1364,7 @@ public class DashboardPanel extends JPanel {
     private void refreshExpiryReminderBanner() {
         String message = service.getVehicleReminderMessage();
         boolean visible = message != null && !message.isBlank();
-        expiryReminderBanner.setText(visible ? "EXPIRATION REMINDER  |  " + message : " ");
+        expiryReminderBanner.setText(visible ? "🔔  EXPIRATION REMINDER  |  " + message : " ");
         expiryReminderBanner.setVisible(visible);
         expiryReminderBanner.getParent().revalidate();
         expiryReminderBanner.getParent().repaint();
@@ -1114,6 +1395,53 @@ public class DashboardPanel extends JPanel {
         int count = 0;
         for (Reservation reservation : reservations) if (status.equalsIgnoreCase(reservation.getStatus())) count++;
         return count;
+    }
+
+    /** Paints the previous screen over the new one and fades it out after navigation. */
+    private static final class TabTransitionOverlay extends JComponent {
+        private static final long serialVersionUID = 1L;
+        private BufferedImage previousView;
+        private int frame;
+        private Timer fadeTimer;
+
+        TabTransitionOverlay() {
+            setOpaque(false);
+            setVisible(false);
+        }
+
+        void fadeFrom(BufferedImage image) {
+            if (image == null) return;
+            if (fadeTimer != null) fadeTimer.stop();
+            previousView = image;
+            frame = 0;
+            setVisible(true);
+            repaint();
+            fadeTimer = new Timer(16, e -> {
+                frame++;
+                if (frame >= 8) stop();
+                else repaint();
+            });
+            fadeTimer.start();
+        }
+
+        void stop() {
+            if (fadeTimer != null) fadeTimer.stop();
+            fadeTimer = null;
+            previousView = null;
+            setVisible(false);
+            repaint();
+        }
+
+        @Override public boolean contains(int x, int y) { return false; }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            if (previousView == null) return;
+            Graphics2D g = (Graphics2D) graphics.create();
+            float opacity = Math.max(0f, 1f - frame / 8f);
+            g.setComposite(AlphaComposite.SrcOver.derive(opacity));
+            g.drawImage(previousView, 0, 0, getWidth(), getHeight(), null);
+            g.dispose();
+        }
     }
 
     private void refreshZoneOverview(java.util.List<ParkingSlot> slots) {
