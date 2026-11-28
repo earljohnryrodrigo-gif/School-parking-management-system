@@ -312,12 +312,6 @@ public class DashboardPanel extends JPanel {
                         vehicleManagementPanel.showPaymentVerification();
                     }));
                 }
-                if (role == UserType.SCHOOL_PERSONNEL) {
-                    items.add(new NavigationSidebar.NavItem("REG", "Vehicle Registration", () -> {
-                        navigateTo(vehiclesTabPanel, "Vehicle Registration");
-                        vehicleManagementPanel.openRegistrationForm();
-                    }));
-                }
                 addNavItem(items, "🕒", role == UserType.PARKING_ADMINISTRATOR ? "Entry / Exit Logs" : "Parking History", recordsTabPanel);
             }
         }
